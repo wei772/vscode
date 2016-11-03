@@ -3,8 +3,6 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-'use strict';
-
 export class ArraySet<T> {
 
 	private _elements: T[];
@@ -13,9 +11,17 @@ export class ArraySet<T> {
 		this._elements = elements.slice();
 	}
 
+	get size(): number {
+		return this._elements.length;
+	}
+
 	set(element: T): void {
 		this.unset(element);
 		this._elements.push(element);
+	}
+
+	contains(element: T): boolean {
+		return this._elements.indexOf(element) > -1;
 	}
 
 	unset(element: T): void {
@@ -27,6 +33,6 @@ export class ArraySet<T> {
 	}
 
 	get elements(): T[] {
-		return this._elements;
+		return this._elements.slice();
 	}
 }

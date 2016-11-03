@@ -4,12 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {Range} from 'vs/editor/common/core/range';
-import {IEditorPosition, IEditorRange, IIdentifiedSingleEditOperation} from 'vs/editor/common/editorCommon';
+import { Range } from 'vs/editor/common/core/range';
+import { IIdentifiedSingleEditOperation, IRange, IPosition } from 'vs/editor/common/editorCommon';
 
 export class EditOperation {
 
-	public static insert(position:IEditorPosition, text:string): IIdentifiedSingleEditOperation {
+	public static insert(position: IPosition, text: string): IIdentifiedSingleEditOperation {
 		return {
 			identifier: null,
 			range: new Range(position.lineNumber, position.column, position.lineNumber, position.column),
@@ -18,28 +18,28 @@ export class EditOperation {
 		};
 	}
 
-	public static delete(range:IEditorRange): IIdentifiedSingleEditOperation {
+	public static delete(range: IRange): IIdentifiedSingleEditOperation {
 		return {
 			identifier: null,
-			range: range,
+			range: Range.lift(range),
 			text: null,
 			forceMoveMarkers: true
 		};
 	}
 
-	public static replace(range:IEditorRange, text:string): IIdentifiedSingleEditOperation {
+	public static replace(range: IRange, text: string): IIdentifiedSingleEditOperation {
 		return {
 			identifier: null,
-			range: range,
+			range: Range.lift(range),
 			text: text,
 			forceMoveMarkers: false
 		};
 	}
 
-	public static replaceMove(range:IEditorRange, text:string): IIdentifiedSingleEditOperation {
+	public static replaceMove(range: IRange, text: string): IIdentifiedSingleEditOperation {
 		return {
 			identifier: null,
-			range: range,
+			range: Range.lift(range),
 			text: text,
 			forceMoveMarkers: true
 		};

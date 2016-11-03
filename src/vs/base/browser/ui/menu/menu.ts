@@ -6,16 +6,18 @@
 'use strict';
 
 import 'vs/css!./menu';
-import {IDisposable} from 'vs/base/common/lifecycle';
-import {$} from 'vs/base/browser/builder';
-import {IActionRunner, IAction} from 'vs/base/common/actions';
-import {ActionBar, IActionItemProvider, ActionsOrientation} from 'vs/base/browser/ui/actionbar/actionbar';
-import {EventEmitter} from 'vs/base/common/eventEmitter';
+import { IDisposable } from 'vs/base/common/lifecycle';
+import { $ } from 'vs/base/browser/builder';
+import { IActionRunner, IAction } from 'vs/base/common/actions';
+import { ActionBar, IActionItemProvider, ActionsOrientation } from 'vs/base/browser/ui/actionbar/actionbar';
+import { EventEmitter } from 'vs/base/common/eventEmitter';
+import { Keybinding } from 'vs/base/common/keybinding';
 
 export interface IMenuOptions {
 	context?: any;
 	actionItemProvider?: IActionItemProvider;
 	actionRunner?: IActionRunner;
+	getKeyBinding?: (action: IAction) => Keybinding;
 }
 
 export class Menu extends EventEmitter {
@@ -43,7 +45,7 @@ export class Menu extends EventEmitter {
 	}
 
 	public focus() {
-		this.actionBar.focus();
+		this.actionBar.focus(true);
 	}
 
 	public dispose() {

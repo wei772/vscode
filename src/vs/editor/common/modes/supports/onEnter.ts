@@ -4,30 +4,14 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {onUnexpectedError} from 'vs/base/common/errors';
+import { onUnexpectedError } from 'vs/base/common/errors';
 import * as strings from 'vs/base/common/strings';
-import {Position} from 'vs/editor/common/core/position';
-import {IPosition, ITextModel, ITokenizedModel} from 'vs/editor/common/editorCommon';
-import {IEnterAction, ILineContext, IMode, IRichEditOnEnter, IndentAction, CharacterPair} from 'vs/editor/common/modes';
-import {handleEvent} from 'vs/editor/common/modes/supports';
-
-export interface IIndentationRules {
-	decreaseIndentPattern: RegExp;
-	increaseIndentPattern: RegExp;
-	indentNextLinePattern?: RegExp;
-	unIndentedLinePattern?: RegExp;
-}
-
-export interface IOnEnterRegExpRules {
-	beforeText: RegExp;
-	afterText?: RegExp;
-	action: IEnterAction;
-}
+import { CharacterPair, IndentationRule, IndentAction, EnterAction, OnEnterRule } from 'vs/editor/common/modes/languageConfiguration';
 
 export interface IOnEnterSupportOptions {
 	brackets?: CharacterPair[];
-	indentationRules?: IIndentationRules;
-	regExpRules?: IOnEnterRegExpRules[];
+	indentationRules?: IndentationRule;
+	regExpRules?: OnEnterRule[];
 }
 
 interface IProcessedBracketPair {
@@ -37,18 +21,17 @@ interface IProcessedBracketPair {
 	closeRegExp: RegExp;
 }
 
-export class OnEnterSupport implements IRichEditOnEnter {
+export class OnEnterSupport {
 
-	private static _INDENT: IEnterAction = { indentAction: IndentAction.Indent };
-	private static _INDENT_OUTDENT: IEnterAction = { indentAction: IndentAction.IndentOutdent };
-	private static _OUTDENT: IEnterAction = { indentAction: IndentAction.Outdent };
+	private static _INDENT: EnterAction = { indentAction: IndentAction.Indent };
+	private static _INDENT_OUTDENT: EnterAction = { indentAction: IndentAction.IndentOutdent };
+	private static _OUTDENT: EnterAction = { indentAction: IndentAction.Outdent };
 
-	private _modeId: string;
-	private _brackets: IProcessedBracketPair[];
-	private _indentationRules: IIndentationRules;
-	private _regExpRules: IOnEnterRegExpRules[];
+	private readonly _brackets: IProcessedBracketPair[];
+	private readonly _indentationRules: IndentationRule;
+	private readonly _regExpRules: OnEnterRule[];
 
-	constructor(modeId: string, opts?:IOnEnterSupportOptions) {
+	constructor(opts?: IOnEnterSupportOptions) {
 		opts = opts || {};
 		opts.brackets = opts.brackets || [
 			['(', ')'],
@@ -56,7 +39,6 @@ export class OnEnterSupport implements IRichEditOnEnter {
 			['[', ']']
 		];
 
-		this._modeId = modeId;
 		this._brackets = opts.brackets.map((bracket) => {
 			return {
 				open: bracket[0],
@@ -69,31 +51,7 @@ export class OnEnterSupport implements IRichEditOnEnter {
 		this._indentationRules = opts.indentationRules;
 	}
 
-	public onEnter(model:ITokenizedModel, position: IPosition): IEnterAction {
-		var context = model.getLineContext(position.lineNumber);
-
-		return handleEvent(context, position.column - 1, (nestedMode:IMode, context:ILineContext, offset:number) => {
-			if (this._modeId === nestedMode.getId()) {
-				return this._onEnter(model, position);
-			} else if (nestedMode.richEditSupport && nestedMode.richEditSupport.onEnter) {
-				return nestedMode.richEditSupport.onEnter.onEnter(model, position);
-			} else {
-				return null;
-			}
-		});
-	}
-
-	private _onEnter(model:ITextModel, position: IPosition): IEnterAction {
-		let lineText = model.getLineContent(position.lineNumber);
-		let beforeEnterText = lineText.substr(0, position.column - 1);
-		let afterEnterText = lineText.substr(position.column - 1);
-
-		let oneLineAboveText = position.lineNumber === 1 ? '' : model.getLineContent(position.lineNumber - 1);
-
-		return this._actualOnEnter(oneLineAboveText, beforeEnterText, afterEnterText);
-	}
-
-	_actualOnEnter(oneLineAboveText:string, beforeEnterText:string, afterEnterText:string): IEnterAction {
+	public onEnter(oneLineAboveText: string, beforeEnterText: string, afterEnterText: string): EnterAction {
 		// (1): `regExpRules`
 		for (let i = 0, len = this._regExpRules.length; i < len; i++) {
 			let rule = this._regExpRules[i];
@@ -150,7 +108,7 @@ export class OnEnterSupport implements IRichEditOnEnter {
 		return null;
 	}
 
-	private static _createOpenBracketRegExp(bracket:string): RegExp {
+	private static _createOpenBracketRegExp(bracket: string): RegExp {
 		var str = strings.escapeRegExpCharacters(bracket);
 		if (!/\B/.test(str.charAt(0))) {
 			str = '\\b' + str;
@@ -159,7 +117,7 @@ export class OnEnterSupport implements IRichEditOnEnter {
 		return OnEnterSupport._safeRegExp(str);
 	}
 
-	private static _createCloseBracketRegExp(bracket:string): RegExp {
+	private static _createCloseBracketRegExp(bracket: string): RegExp {
 		var str = strings.escapeRegExpCharacters(bracket);
 		if (!/\B/.test(str.charAt(str.length - 1))) {
 			str = str + '\\b';
@@ -168,63 +126,13 @@ export class OnEnterSupport implements IRichEditOnEnter {
 		return OnEnterSupport._safeRegExp(str);
 	}
 
-	private static _safeRegExp(def:string): RegExp {
+	private static _safeRegExp(def: string): RegExp {
 		try {
 			return new RegExp(def);
-		} catch(err) {
+		} catch (err) {
 			onUnexpectedError(err);
 			return null;
 		}
 	}
 }
 
-export function getRawEnterActionAtPosition(model:ITokenizedModel, lineNumber:number, column:number): IEnterAction {
-	let result:IEnterAction;
-	let richEditSupport = model.getMode().richEditSupport;
-
-	if (richEditSupport && richEditSupport.onEnter) {
-		try {
-			result = richEditSupport.onEnter.onEnter(model, new Position(lineNumber, column));
-		} catch (e) {
-			onUnexpectedError(e);
-		}
-	}
-
-	return result;
-}
-
-export function getEnterActionAtPosition(model:ITokenizedModel, lineNumber:number, column:number): { enterAction: IEnterAction; indentation: string; } {
-	let lineText = model.getLineContent(lineNumber);
-	let indentation = strings.getLeadingWhitespace(lineText);
-	if (indentation.length > column - 1) {
-		indentation = indentation.substring(0, column - 1);
-	}
-
-	let enterAction = getRawEnterActionAtPosition(model, lineNumber, column);
-	if (!enterAction) {
-		enterAction = {
-			indentAction: IndentAction.None,
-			appendText: '',
-		};
-	} else {
-		if(!enterAction.appendText) {
-			if (
-				(enterAction.indentAction === IndentAction.Indent) ||
-				(enterAction.indentAction === IndentAction.IndentOutdent)
-			) {
-				enterAction.appendText = '\t';
-			} else {
-				enterAction.appendText = '';
-			}
-		}
-	}
-
-	if (enterAction.removeText) {
-		indentation = indentation.substring(0, indentation.length - 1);
-	}
-
-	return {
-		enterAction: enterAction,
-		indentation: indentation
-	};
-}

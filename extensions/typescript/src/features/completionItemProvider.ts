@@ -5,12 +5,12 @@
 
 'use strict';
 
-import { CompletionItem, TextDocument, Position, CompletionItemKind, CompletionItemProvider, CancellationToken, WorkspaceConfiguration } from 'vscode';
+import { CompletionItem, TextDocument, Position, CompletionItemKind, CompletionItemProvider, CancellationToken, WorkspaceConfiguration, TextEdit, Range } from 'vscode';
 
 import { ITypescriptServiceClient } from '../typescriptService';
 
 import * as PConst from '../protocol.const';
-import { CompletionEntry, CompletionsRequestArgs, CompletionsResponse, CompletionDetailsRequestArgs, CompletionDetailsResponse, CompletionEntryDetails } from '../protocol';
+import { CompletionEntry, CompletionsRequestArgs, CompletionDetailsRequestArgs, CompletionEntryDetails } from '../protocol';
 import * as Previewer from './previewer';
 
 class MyCompletionItem extends CompletionItem {
@@ -22,6 +22,10 @@ class MyCompletionItem extends CompletionItem {
 		super(entry.name);
 		this.sortText = entry.sortText;
 		this.kind = MyCompletionItem.convertKind(entry.kind);
+		if (entry.replacementSpan) {
+			let span = entry.replacementSpan;
+			this.textEdit = TextEdit.replace(new Range(span.start.line, span.start.offset, span.end.line, span.end.offset), entry.name);
+		}
 	}
 
 	private static convertKind(kind: string): CompletionItemKind {
@@ -125,8 +129,8 @@ export default class TypeScriptCompletionItemProvider implements CompletionItemP
 			}
 
 			return completionItems;
-
-		}, (err: CompletionsResponse) => {
+		}, (err) => {
+			this.client.error(`'completions' request failed with error.`, err);
 			return [];
 		});
 	}
@@ -168,7 +172,8 @@ export default class TypeScriptCompletionItemProvider implements CompletionItemP
 
 				return item;
 
-			}, (err: CompletionDetailsResponse) => {
+			}, (err) => {
+				this.client.error(`'completionEntryDetails' request failed with error.`, err);
 				return item;
 			});
 

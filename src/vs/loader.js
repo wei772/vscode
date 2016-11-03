@@ -13,7 +13,6 @@
  *---------------------------------------------------------------------------------------------
  *---------------------------------------------------------------------------------------------
  *--------------------------------------------------------------------------------------------*/
-/// <reference path="declares.ts" />
 'use strict';
 // Limitation: To load jquery through the loader, always require 'jquery' and add a path for it in the loader configuration
 var _amdLoaderGlobal = this, define;
@@ -123,7 +122,7 @@ var AMDLoader;
         };
         Utilities.NEXT_ANONYMOUS_ID = 1;
         return Utilities;
-    })();
+    }());
     AMDLoader.Utilities = Utilities;
     var ConfigurationOptionsUtil = (function () {
         function ConfigurationOptionsUtil() {
@@ -189,6 +188,9 @@ var AMDLoader;
                     options.baseUrl += '/';
                 }
             }
+            if (!Array.isArray(options.nodeModules)) {
+                options.nodeModules = [];
+            }
             return options;
         };
         ConfigurationOptionsUtil.mergeConfigurationOptions = function (overwrite, base) {
@@ -232,7 +234,7 @@ var AMDLoader;
             return ConfigurationOptionsUtil.validateConfigurationOptions(result);
         };
         return ConfigurationOptionsUtil;
-    })();
+    }());
     AMDLoader.ConfigurationOptionsUtil = ConfigurationOptionsUtil;
     var Configuration = (function () {
         function Configuration(options) {
@@ -428,6 +430,10 @@ var AMDLoader;
          * Transform a module id to a location. Appends .js to module ids
          */
         Configuration.prototype.moduleIdToPaths = function (moduleId) {
+            if (this.isBuild() && this.options.nodeModules.indexOf(moduleId) >= 0) {
+                // This is a node module and we are at build time, drop it
+                return ['empty:'];
+            }
             var result = moduleId;
             if (this.overwriteModuleIdToPath.hasOwnProperty(result)) {
                 result = this.overwriteModuleIdToPath[result];
@@ -522,7 +528,7 @@ var AMDLoader;
             this.options.onError(err);
         };
         return Configuration;
-    })();
+    }());
     AMDLoader.Configuration = Configuration;
     // ------------------------------------------------------------------------
     // ModuleIdResolver
@@ -602,7 +608,7 @@ var AMDLoader;
             this._config.onError(err);
         };
         return ModuleIdResolver;
-    })();
+    }());
     AMDLoader.ModuleIdResolver = ModuleIdResolver;
     // ------------------------------------------------------------------------
     // Module
@@ -832,7 +838,7 @@ var AMDLoader;
             return this._unresolvedDependenciesCount === 0;
         };
         return Module;
-    })();
+    }());
     AMDLoader.Module = Module;
     // ------------------------------------------------------------------------
     // LoaderEvent
@@ -859,7 +865,7 @@ var AMDLoader;
             this.timestamp = timestamp;
         }
         return LoaderEvent;
-    })();
+    }());
     AMDLoader.LoaderEvent = LoaderEvent;
     var LoaderEventRecorder = (function () {
         function LoaderEventRecorder(loaderAvailableTimestamp) {
@@ -872,7 +878,7 @@ var AMDLoader;
             return this._events;
         };
         return LoaderEventRecorder;
-    })();
+    }());
     AMDLoader.LoaderEventRecorder = LoaderEventRecorder;
     var NullLoaderEventRecorder = (function () {
         function NullLoaderEventRecorder() {
@@ -885,7 +891,7 @@ var AMDLoader;
         };
         NullLoaderEventRecorder.INSTANCE = new NullLoaderEventRecorder();
         return NullLoaderEventRecorder;
-    })();
+    }());
     AMDLoader.NullLoaderEventRecorder = NullLoaderEventRecorder;
     var ModuleManager = (function () {
         function ModuleManager(scriptLoader) {
@@ -900,6 +906,7 @@ var AMDLoader;
             this._queuedDefineCalls = [];
             this._loadingScriptsCount = 0;
             this._resolvedScriptPaths = {};
+            this._checksums = {};
         }
         ModuleManager._findRelevantLocationInStack = function (needle, stack) {
             var normalize = function (str) { return str.replace(/\\/g, '/'); };
@@ -960,6 +967,12 @@ var AMDLoader;
         };
         ModuleManager.prototype.getLoaderEvents = function () {
             return this.getRecorder().getEvents();
+        };
+        ModuleManager.prototype.recordChecksum = function (scriptSrc, checksum) {
+            this._checksums[scriptSrc] = checksum;
+        };
+        ModuleManager.prototype.getChecksums = function () {
+            return this._checksums;
         };
         /**
          * Defines a module.
@@ -1284,6 +1297,9 @@ var AMDLoader;
             result.getStats = function () {
                 return _this.getLoaderEvents();
             };
+            result.getChecksums = function () {
+                return _this.getChecksums();
+            };
             result.__$__nodeRequire = global.nodeRequire;
             return result;
         };
@@ -1520,7 +1536,7 @@ var AMDLoader;
             }
         };
         return ModuleManager;
-    })();
+    }());
     AMDLoader.ModuleManager = ModuleManager;
     /**
      * Load `scriptSrc` only once (avoid multiple <script> tags)
@@ -1561,7 +1577,7 @@ var AMDLoader;
             }
         };
         return OnlyOnceScriptLoader;
-    })();
+    }());
     var BrowserScriptLoader = (function () {
         function BrowserScriptLoader() {
         }
@@ -1628,7 +1644,7 @@ var AMDLoader;
             document.getElementsByTagName('head')[0].appendChild(script);
         };
         return BrowserScriptLoader;
-    })();
+    }());
     var WorkerScriptLoader = (function () {
         function WorkerScriptLoader() {
             this.loadCalls = [];
@@ -1681,7 +1697,7 @@ var AMDLoader;
             }
         };
         return WorkerScriptLoader;
-    })();
+    }());
     var NodeScriptLoader = (function () {
         function NodeScriptLoader() {
             this._initialized = false;
@@ -1697,10 +1713,12 @@ var AMDLoader;
             this._fs = nodeRequire('fs');
             this._vm = nodeRequire('vm');
             this._path = nodeRequire('path');
+            this._crypto = nodeRequire('crypto');
         };
         NodeScriptLoader.prototype.load = function (scriptSrc, callback, errorback, recorder) {
             var _this = this;
             var opts = this._moduleManager.getConfigurationOptions();
+            var checksum = opts.checksum || false;
             var nodeRequire = (opts.nodeRequire || global.nodeRequire);
             var nodeInstrumenter = (opts.nodeInstrumenter || function (c) { return c; });
             this._init(nodeRequire);
@@ -1727,11 +1745,19 @@ var AMDLoader;
                         errorback(err);
                         return;
                     }
+                    if (checksum) {
+                        var hash = _this._crypto
+                            .createHash('md5')
+                            .update(data, 'utf8')
+                            .digest('base64')
+                            .replace(/=+$/, '');
+                        _this._moduleManager.recordChecksum(scriptSrc, hash);
+                    }
                     recorder.record(LoaderEventType.NodeBeginEvaluatingScript, scriptSrc);
                     var vmScriptSrc = _this._path.normalize(scriptSrc);
                     // Make the script src friendly towards electron
                     if (isElectronRenderer) {
-                        var driveLetterMatch = vmScriptSrc.match(/^([a-z])\:(.*)/);
+                        var driveLetterMatch = vmScriptSrc.match(/^([a-z])\:(.*)/i);
                         if (driveLetterMatch) {
                             vmScriptSrc = driveLetterMatch[1].toUpperCase() + ':' + driveLetterMatch[2];
                         }
@@ -1760,7 +1786,7 @@ var AMDLoader;
         };
         NodeScriptLoader._BOM = 0xFEFF;
         return NodeScriptLoader;
-    })();
+    }());
     // ------------------------------------------------------------------------
     // ------------------------------------------------------------------------
     // ------------------------------------------------------------------------
@@ -1790,7 +1816,7 @@ var AMDLoader;
             jQuery: true
         };
         return DefineFunc;
-    })();
+    }());
     var RequireFunc = (function () {
         function RequireFunc() {
             if (arguments.length === 1) {
@@ -1836,8 +1862,14 @@ var AMDLoader;
         RequireFunc.getStats = function () {
             return moduleManager.getLoaderEvents();
         };
+        /**
+         * Non standard extension to fetch checksums
+         */
+        RequireFunc.getChecksums = function () {
+            return moduleManager.getChecksums();
+        };
         return RequireFunc;
-    })();
+    }());
     var global = _amdLoaderGlobal, hasPerformanceNow = (global.performance && typeof global.performance.now === 'function'), isWebWorker, isElectronRenderer, isElectronMain, isNode, scriptLoader, moduleManager, loaderAvailableTimestamp;
     function initVars() {
         isWebWorker = (typeof global.importScripts === 'function');
@@ -1920,7 +1952,7 @@ var AMDLoader;
                 RequireFunc.config(global.require);
             }
             if (!isElectronRenderer) {
-                global.define = DefineFunc;
+                global.define = define = DefineFunc;
             }
             else {
                 define = function () {

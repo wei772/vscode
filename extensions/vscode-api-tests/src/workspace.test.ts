@@ -6,25 +6,45 @@
 'use strict';
 
 import * as assert from 'assert';
-import {workspace, TextDocument, window, Position, Uri, EventEmitter, WorkspaceEdit} from 'vscode';
-import {createRandomFile, deleteFile, cleanUp, pathEquals} from './utils';
-import {join, basename} from 'path';
+import { workspace, TextDocument, window, Position, Uri, EventEmitter, WorkspaceEdit } from 'vscode';
+import { createRandomFile, deleteFile, cleanUp, pathEquals } from './utils';
+import { join, basename } from 'path';
 import * as fs from 'fs';
 
 suite('workspace-namespace', () => {
 
 	teardown(cleanUp);
 
-	test('default configuration', () => {
+	test('configuration, defaults', () => {
 		const config = workspace.getConfiguration('farboo');
 
 		assert.ok(config.has('config0'));
 		assert.equal(config.get('config0'), true);
+		assert.equal(config.get('config4'), '');
+		assert.equal(config['config0'], true);
+		assert.equal(config['config4'], '');
+
+		assert.throws(() => config['config4'] = 'valuevalue');
+
 		assert.ok(config.has('nested.config1'));
 		assert.equal(config.get('nested.config1'), 42);
 		assert.ok(config.has('nested.config2'));
 		assert.equal(config.get('nested.config2'), 'Das Pferd frisst kein Reis.');
 	});
+
+	test('configuration, name vs property', () => {
+		const config = workspace.getConfiguration('farboo');
+
+		assert.ok(config.has('get'));
+		assert.equal(config.get('get'), 'get-prop');
+		assert.deepEqual(config['get'], config.get);
+		assert.throws(() => config['get'] = <any>'get-prop');
+	});
+
+	// test('configuration, getConfig/value', () => {
+	// 	const value = workspace.getConfiguration('farboo.config0');
+	// 	assert.equal(Object.keys(value).length, 3);
+	// });
 
 	test('textDocuments', () => {
 		assert.ok(Array.isArray(workspace.textDocuments));
@@ -57,32 +77,35 @@ suite('workspace-namespace', () => {
 			return done(); // TODO@Joh this test fails on windows
 		}
 
-		workspace.openTextDocument(Uri.parse('untitled://' + join(workspace.rootPath, './newfile.txt'))).then(doc => {
+		workspace.openTextDocument(Uri.parse('untitled:' + join(workspace.rootPath, './newfile.txt'))).then(doc => {
 			assert.equal(doc.uri.scheme, 'untitled');
 			assert.ok(doc.isDirty);
 			done();
 		});
 	});
 
-	test('openTextDocument, untitled closes on save', function () {
+	test('openTextDocument, untitled closes on save', function (done) {
 		const path = join(workspace.rootPath, './newfile.txt');
 
-		return workspace.openTextDocument(Uri.parse('untitled://' + path)).then(doc => {
+		return workspace.openTextDocument(Uri.parse('untitled:' + path)).then(doc => {
 			assert.equal(doc.uri.scheme, 'untitled');
 			assert.ok(doc.isDirty);
 
 			let closed: TextDocument;
 			let d0 = workspace.onDidCloseTextDocument(e => closed = e);
 
-			return doc.save().then(() => {
-				assert.ok(closed === doc);
-				assert.ok(!doc.isDirty);
-				assert.ok(fs.existsSync(path));
+			return window.showTextDocument(doc).then(() => {
+				return doc.save().then(() => {
+					assert.ok(closed === doc);
+					assert.ok(!doc.isDirty);
+					assert.ok(fs.existsSync(path));
 
-				d0.dispose();
+					d0.dispose();
 
-				return deleteFile(Uri.file(join(workspace.rootPath, './newfile.txt')));
+					return deleteFile(Uri.file(join(workspace.rootPath, './newfile.txt'))).then(() => done(null));
+				});
 			});
+
 		});
 	});
 
@@ -294,6 +317,23 @@ suite('workspace-namespace', () => {
 		});
 	});
 
+	test('registerTextDocumentContentProvider, empty doc', function () {
+
+		let registration = workspace.registerTextDocumentContentProvider('foo', {
+			provideTextDocumentContent(uri) {
+				return '';
+			}
+		});
+
+		const uri = Uri.parse('foo:doc/empty');
+
+		return workspace.openTextDocument(uri).then(doc => {
+			assert.equal(doc.getText(), '');
+			assert.equal(doc.uri.toString(), uri.toString());
+			registration.dispose();
+		});
+	});
+
 	test('registerTextDocumentContentProvider, change event', function () {
 
 		let callCount = 0;
@@ -350,7 +390,7 @@ suite('workspace-namespace', () => {
 
 	test('applyEdit', () => {
 
-		return workspace.openTextDocument(Uri.parse('untitled://' + join(workspace.rootPath, './new2.txt'))).then(doc => {
+		return workspace.openTextDocument(Uri.parse('untitled:' + join(workspace.rootPath, './new2.txt'))).then(doc => {
 			let edit = new WorkspaceEdit();
 			edit.insert(doc.uri, new Position(0, 0), new Array(1000).join('Hello World'));
 			return workspace.applyEdit(edit);

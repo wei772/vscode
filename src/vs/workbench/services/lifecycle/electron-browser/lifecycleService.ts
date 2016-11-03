@@ -4,27 +4,33 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {TPromise} from 'vs/base/common/winjs.base';
+import { TPromise } from 'vs/base/common/winjs.base';
 import Severity from 'vs/base/common/severity';
-import errors = require('vs/base/common/errors');
-import {ILifecycleService, ShutdownEvent} from 'vs/platform/lifecycle/common/lifecycle';
-import {IMessageService} from 'vs/platform/message/common/message';
-import {IWindowService} from 'vs/workbench/services/window/electron-browser/windowService';
-import {ipcRenderer as ipc} from 'electron';
-import Event, {Emitter} from 'vs/base/common/event';
+import { toErrorMessage } from 'vs/base/common/errorMessage';
+import { ILifecycleService, ShutdownEvent } from 'vs/platform/lifecycle/common/lifecycle';
+import { IMessageService } from 'vs/platform/message/common/message';
+import { IWindowIPCService } from 'vs/workbench/services/window/electron-browser/windowService';
+import { ipcRenderer as ipc } from 'electron';
+import Event, { Emitter } from 'vs/base/common/event';
 
 export class LifecycleService implements ILifecycleService {
 
-	public serviceId = ILifecycleService;
+	public _serviceBrand: any;
 
 	private _onWillShutdown = new Emitter<ShutdownEvent>();
 	private _onShutdown = new Emitter<void>();
 
+	private _willShutdown: boolean;
+
 	constructor(
-		private _messageService: IMessageService,
-		private windowService: IWindowService
+		@IMessageService private messageService: IMessageService,
+		@IWindowIPCService private windowService: IWindowIPCService
 	) {
-		this._registerListeners();
+		this.registerListeners();
+	}
+
+	public get willShutdown(): boolean {
+		return this._willShutdown;
 	}
 
 	public get onWillShutdown(): Event<ShutdownEvent> {
@@ -35,15 +41,17 @@ export class LifecycleService implements ILifecycleService {
 		return this._onShutdown.event;
 	}
 
-	private _registerListeners(): void {
-
+	private registerListeners(): void {
 		const windowId = this.windowService.getWindowId();
 
 		// Main side indicates that window is about to unload, check for vetos
 		ipc.on('vscode:beforeUnload', (event, reply: { okChannel: string, cancelChannel: string }) => {
+			this._willShutdown = true;
 
-			this._onBeforeUnload().done(veto => {
+			// trigger onWillShutdown events and veto collecting
+			this.onBeforeUnload().done(veto => {
 				if (veto) {
+					this._willShutdown = false; // reset this flag since the shutdown has been vetoed!
 					ipc.send(reply.cancelChannel, windowId);
 				} else {
 					this._onShutdown.fire();
@@ -53,8 +61,7 @@ export class LifecycleService implements ILifecycleService {
 		});
 	}
 
-	private _onBeforeUnload(): TPromise<boolean> {
-
+	private onBeforeUnload(): TPromise<boolean> {
 		const vetos: (boolean | TPromise<boolean>)[] = [];
 
 		this._onWillShutdown.fire({
@@ -80,12 +87,11 @@ export class LifecycleService implements ILifecycleService {
 			if (TPromise.is(valueOrPromise)) {
 				promises.push(valueOrPromise.then(value => {
 					if (value) {
-						// veto, done
-						lazyValue = true;
+						lazyValue = true; // veto, done
 					}
 				}, err => {
 					// error, treated like a veto, done
-					this._messageService.show(Severity.Error, errors.toErrorMessage(err));
+					this.messageService.show(Severity.Error, toErrorMessage(err));
 					lazyValue = true;
 				}));
 			}

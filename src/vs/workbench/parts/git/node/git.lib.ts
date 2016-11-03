@@ -3,17 +3,21 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import * as os from 'os';
+import * as path from 'path';
 import { Promise, TPromise } from 'vs/base/common/winjs.base';
-import extfs = require('vs/base/node/extfs');
+import { del } from 'vs/base/node/extfs';
+import * as pfs from 'vs/base/node/pfs';
 import { guessMimeTypes, isBinaryMime } from 'vs/base/common/mime';
 import { IDisposable, toDisposable, dispose } from 'vs/base/common/lifecycle';
-import objects = require('vs/base/common/objects');
-import uuid = require('vs/base/common/uuid');
-import nls = require('vs/nls');
-import strings = require('vs/base/common/strings');
-import { IRawFileStatus, IHead, ITag, IBranch, IRemote, GitErrorCodes, IPushOptions } from 'vs/workbench/parts/git/common/git';
+import { assign } from 'vs/base/common/objects';
+import { sequence } from 'vs/base/common/async';
+import { v4 as UUIDv4 } from 'vs/base/common/uuid';
+import { localize } from 'vs/nls';
+import { uniqueFilter, index } from 'vs/base/common/arrays';
+import { IRawFileStatus, RefType, IRef, IBranch, IRemote, GitErrorCodes, IPushOptions } from 'vs/workbench/parts/git/common/git';
 import { detectMimesFromStream } from 'vs/base/node/mime';
-import files = require('vs/platform/files/common/files');
+import { IFileOperationResult, FileOperationResult } from 'vs/platform/files/common/files';
 import { spawn, ChildProcess } from 'child_process';
 import { decode, encodingExists } from 'vs/base/node/encoding';
 
@@ -74,13 +78,13 @@ export interface IGitErrorData {
 
 export class GitError {
 
-	public error: Error;
-	public message: string;
-	public stdout: string;
-	public stderr: string;
-	public exitCode: number;
-	public gitErrorCode: string;
-	public gitCommand: string;
+	error: Error;
+	message: string;
+	stdout: string;
+	stderr: string;
+	exitCode: number;
+	gitErrorCode: string;
+	gitCommand: string;
 
 	constructor(data: IGitErrorData) {
 		if (data.error) {
@@ -98,7 +102,7 @@ export class GitError {
 		this.gitCommand = data.gitCommand || null;
 	}
 
-	public toString(): string {
+	toString(): string {
 		let result = this.message + ' ' + JSON.stringify({
 			exitCode: this.exitCode,
 			gitErrorCode: this.gitErrorCode,
@@ -108,7 +112,7 @@ export class GitError {
 		}, null, 2);
 
 		if (this.error) {
-			result += (<any> this.error).stack;
+			result += (<any>this.error).stack;
 		}
 
 		return result;
@@ -116,18 +120,18 @@ export class GitError {
 }
 
 export interface IGitOptions {
-	gitPath:string;
+	gitPath: string;
 	version: string;
-	tmpPath:string;
+	tmpPath: string;
 	defaultEncoding?: string;
-	env?:any;
+	env?: any;
 }
 
 export class Git {
 
-	public gitPath: string;
-	public version: string;
-	public env: any;
+	gitPath: string;
+	version: string;
+	env: any;
 	private tmpPath: string;
 	private defaultEncoding: string;
 	private outputListeners: { (output: string): void; }[];
@@ -144,27 +148,27 @@ export class Git {
 		this.outputListeners = [];
 	}
 
-	public run(cwd: string, args: string[], options: any = {}): TPromise<IExecutionResult> {
-		options = objects.assign({ cwd: cwd }, options || {});
+	run(cwd: string, args: string[], options: any = {}): TPromise<IExecutionResult> {
+		options = assign({ cwd: cwd }, options || {});
 		return this.exec(args, options);
 	}
 
-	public stream(cwd: string, args: string[], options: any = {}): ChildProcess {
-		options = objects.assign({ cwd: cwd }, options || {});
+	stream(cwd: string, args: string[], options: any = {}): ChildProcess {
+		options = assign({ cwd: cwd }, options || {});
 		return this.spawn(args, options);
 	}
 
-	public open(repository: string, env: any = {}): Repository {
+	open(repository: string, env: any = {}): Repository {
 		return new Repository(this, repository, this.defaultEncoding, env);
 	}
 
-	public clone(repository: string, repoURL: string): TPromise<boolean> {
+	clone(repository: string, repoURL: string): TPromise<boolean> {
 		return this.exec(['clone', repoURL, repository]).then(() => true, (err) => {
 			return new TPromise<boolean>((c, e) => {
 
 				// If there's any error, git will still leave the folder in the FS,
 				// so we need to remove it.
-				extfs.del(repository, this.tmpPath, (err) => {
+				del(repository, this.tmpPath, (err) => {
 					if (err) { return e(err); }
 					c(true);
 				});
@@ -172,7 +176,7 @@ export class Git {
 		});
 	}
 
-	public config(name: string, value: string): Promise {
+	config(name: string, value: string): Promise {
 		return this.exec(['config', '--global', name, value]);
 	}
 
@@ -219,7 +223,7 @@ export class Git {
 		});
 	}
 
-	public spawn(args: string[], options: any = {}): ChildProcess {
+	spawn(args: string[], options: any = {}): ChildProcess {
 		if (!this.gitPath) {
 			throw new Error('git could not be found in the system.');
 		}
@@ -232,22 +236,20 @@ export class Git {
 			options.stdio = ['ignore', null, null]; // Unless provided, ignore stdin and leave default streams for stdout and stderr
 		}
 
-		options.env = objects.assign({}, options.env || {});
-		options.env = objects.assign(options.env, this.env);
-		options.env = objects.assign(options.env, {
-			MONACO_REQUEST_GUID: uuid.v4().asHex(),
-			VSCODE_GIT_REQUEST_ID: uuid.v4().asHex(),
+		options.env = assign({}, options.env || {}, this.env, {
+			LANG: 'en_US.UTF-8',
+			VSCODE_GIT_REQUEST_ID: UUIDv4().asHex(),
 			MONACO_GIT_COMMAND: args[0]
 		});
 
 		if (options.log !== false) {
-			this.log(strings.format('git {0}\n', args.join(' ')));
+			this.log(`git ${args.join(' ')}\n`);
 		}
 
 		return spawn(this.gitPath, args, options);
 	}
 
-	public onOutput(listener: (output: string) => void): () => void {
+	onOutput(listener: (output: string) => void): () => void {
 		this.outputListeners.push(listener);
 		return () => this.outputListeners.splice(this.outputListeners.indexOf(listener), 1);
 	}
@@ -255,6 +257,11 @@ export class Git {
 	private log(output: string): void {
 		this.outputListeners.forEach(l => l(output));
 	}
+}
+
+export interface ICommit {
+	hash: string;
+	message: string;
 }
 
 export class Repository {
@@ -271,40 +278,40 @@ export class Repository {
 		this.env = env;
 	}
 
-	public get version(): string {
+	get version(): string {
 		return this.git.version;
 	}
 
-	public get path(): string {
+	get path(): string {
 		return this.repository;
 	}
 
-	public run(args: string[], options: any = {}): TPromise<IExecutionResult> {
-		options.env = objects.assign({}, options.env || {});
-		options.env = objects.assign(options.env, this.env);
+	run(args: string[], options: any = {}): TPromise<IExecutionResult> {
+		options.env = assign({}, options.env || {});
+		options.env = assign(options.env, this.env);
 
 		return this.git.run(this.repository, args, options);
 	}
 
-	public stream(args: string[], options: any = {}): ChildProcess {
-		options.env = objects.assign({}, options.env || {});
-		options.env = objects.assign(options.env, this.env);
+	stream(args: string[], options: any = {}): ChildProcess {
+		options.env = assign({}, options.env || {});
+		options.env = assign(options.env, this.env);
 
 		return this.git.stream(this.repository, args, options);
 	}
 
-	public spawn(args: string[], options: any = {}): ChildProcess {
-		options.env = objects.assign({}, options.env || {});
-		options.env = objects.assign(options.env, this.env);
+	spawn(args: string[], options: any = {}): ChildProcess {
+		options.env = assign({}, options.env || {});
+		options.env = assign(options.env, this.env);
 
 		return this.git.spawn(args, options);
 	}
 
-	public init(): Promise {
+	init(): Promise {
 		return this.run(['init']);
 	}
 
-	public config(scope: string, key:string, value:any, options:any): TPromise<string> {
+	config(scope: string, key: string, value: any, options: any): TPromise<string> {
 		const args = ['config'];
 
 		if (scope) {
@@ -320,21 +327,25 @@ export class Repository {
 		return this.run(args, options).then((result) => result.stdout);
 	}
 
-	public show(object: string): ChildProcess {
+	show(object: string): ChildProcess {
 		return this.stream(['show', object]);
 	}
 
-	public buffer(object: string): TPromise<string> {
+	buffer(object: string): TPromise<string> {
 		const child = this.show(object);
+
+		if (!child.stdout) {
+			return TPromise.wrapError(localize('errorBuffer', "Can't open file from git"));
+		}
 
 		return new Promise((c, e) => {
 			detectMimesFromStream(child.stdout, null, (err, result) => {
 				if (err) {
 					e(err);
 				} else if (isBinaryMime(result.mimes)) {
-					e(<files.IFileOperationResult>{
-						message: nls.localize('fileBinaryError', "File seems to be binary and cannot be opened as text"),
-						fileOperationResult: files.FileOperationResult.FILE_IS_BINARY
+					e(<IFileOperationResult>{
+						message: localize('fileBinaryError', "File seems to be binary and cannot be opened as text"),
+						fileOperationResult: FileOperationResult.FILE_IS_BINARY
 					});
 				} else {
 					c(this.doBuffer(object));
@@ -358,7 +369,7 @@ export class Repository {
 		});
 	}
 
-	public add(paths: string[]): Promise {
+	add(paths: string[]): Promise {
 		const args = ['add', '-A', '--'];
 
 		if (paths && paths.length) {
@@ -370,7 +381,7 @@ export class Repository {
 		return this.run(args);
 	}
 
-	public stage(path: string, data: string): Promise {
+	stage(path: string, data: string): Promise {
 		const child = this.stream(['hash-object', '--stdin', '-w'], { stdio: [null, null, null] });
 		child.stdin.end(data, 'utf8');
 
@@ -386,8 +397,8 @@ export class Repository {
 		});
 	}
 
-	public checkout(treeish: string, paths: string[]): Promise {
-		const args = [ 'checkout', '-q' ];
+	checkout(treeish: string, paths: string[]): Promise {
+		const args = ['checkout', '-q'];
 
 		if (treeish) {
 			args.push(treeish);
@@ -407,7 +418,7 @@ export class Repository {
 		});
 	}
 
-	public commit(message: string, all: boolean, amend: boolean): Promise {
+	commit(message: string, all: boolean, amend: boolean, signoff: boolean): Promise {
 		const args = ['commit', '--quiet', '--allow-empty-message', '--file', '-'];
 
 		if (all) {
@@ -416,6 +427,10 @@ export class Repository {
 
 		if (amend) {
 			args.push('--amend');
+		}
+
+		if (signoff) {
+			args.push('--signoff');
 		}
 
 		return this.run(args, { input: message || '' }).then(null, (commitErr: GitError) => {
@@ -438,19 +453,22 @@ export class Repository {
 		});
 	}
 
-	public branch(name: string, checkout: boolean): Promise {
-		const args = checkout ? ['checkout', '-q', '-b', name] : [ 'branch', '-q', name ];
+	branch(name: string, checkout: boolean): Promise {
+		const args = checkout ? ['checkout', '-q', '-b', name] : ['branch', '-q', name];
 		return this.run(args);
 	}
 
-	public clean(paths: string[]): Promise {
-		const args = [ 'clean', '-f', '-q', '--' ].concat(paths);
-		return this.run(args);
+	clean(paths: string[]): Promise {
+		const byDirname = index<string, string[]>(paths, p => path.dirname(p), (p, r) => (r || []).concat([p]));
+		const groups = Object.keys(byDirname).map(key => byDirname[key]);
+		const tasks = groups.map(group => () => this.run(['clean', '-f', '-q', '--'].concat(group)));
+
+		return sequence(tasks);
 	}
 
-	public undo(): Promise {
-		return this.run([ 'clean', '-fd' ]).then(() => {
-			return this.run([ 'checkout', '--', '.' ]).then(null, (err: GitError) => {
+	undo(): Promise {
+		return this.run(['clean', '-fd']).then(() => {
+			return this.run(['checkout', '--', '.']).then(null, (err: GitError) => {
 				if (/did not match any file\(s\) known to git\./.test(err.stderr)) {
 					return TPromise.as(null);
 				}
@@ -460,7 +478,7 @@ export class Repository {
 		});
 	}
 
-	public reset(treeish: string, hard: boolean = false): Promise {
+	reset(treeish: string, hard: boolean = false): Promise {
 		const args = ['reset'];
 
 		if (hard) {
@@ -472,15 +490,15 @@ export class Repository {
 		return this.run(args);
 	}
 
-	public revertFiles(treeish: string, paths: string[]): Promise {
-		return this.run([ 'branch' ]).then((result) => {
+	revertFiles(treeish: string, paths: string[]): Promise {
+		return this.run(['branch']).then((result) => {
 			let args: string[];
 
 			// In case there are no branches, we must use rm --cached
 			if (!result.stdout) {
-				args = [ 'rm', '--cached', '-r', '--' ];
+				args = ['rm', '--cached', '-r', '--'];
 			} else {
-				args = [ 'reset', '-q', treeish, '--' ];
+				args = ['reset', '-q', treeish, '--'];
 			}
 
 			if (paths && paths.length) {
@@ -501,7 +519,7 @@ export class Repository {
 		});
 	}
 
-	public fetch(): Promise {
+	fetch(): Promise {
 		return this.run(['fetch']).then(null, (err: GitError) => {
 			if (/No remote repository specified\./.test(err.stderr)) {
 				err.gitErrorCode = GitErrorCodes.NoRemoteRepositorySpecified;
@@ -513,7 +531,7 @@ export class Repository {
 		});
 	}
 
-	public pull(rebase?: boolean): Promise {
+	pull(rebase?: boolean): Promise {
 		const args = ['pull'];
 		if (rebase) { args.push('-r'); }
 
@@ -532,7 +550,7 @@ export class Repository {
 		});
 	}
 
-	public push(remote?: string, name?: string, options?:IPushOptions): Promise {
+	push(remote?: string, name?: string, options?: IPushOptions): Promise {
 		const args = ['push'];
 		if (options && options.setUpstream) { args.push('-u'); }
 		if (remote) { args.push(remote); }
@@ -549,24 +567,24 @@ export class Repository {
 		});
 	}
 
-	public sync(): Promise {
+	sync(): Promise {
 		return this.pull().then(() => this.push());
 	}
 
-	public getRoot(): TPromise<string> {
+	getRoot(): TPromise<string> {
 		return this.run(['rev-parse', '--show-toplevel'], { log: false }).then(result => result.stdout.trim());
 	}
 
-	public getStatus(): TPromise<IRawFileStatus[]> {
+	getStatus(): TPromise<IRawFileStatus[]> {
 		return this.run(['status', '-z', '-u'], { log: false }).then((executionResult) => {
 			const status = executionResult.stdout;
-			const result:IRawFileStatus[] = [];
-			let current:IRawFileStatus;
+			const result: IRawFileStatus[] = [];
+			let current: IRawFileStatus;
 			let i = 0;
 
-			function readName():string {
+			function readName(): string {
 				const start = i;
-				let c:string;
+				let c: string;
 				while ((c = status.charAt(i)) !== '\u0000') { i++; }
 				return status.substring(start, i++);
 			}
@@ -589,7 +607,7 @@ export class Repository {
 				current.mimetype = guessMimeTypes(current.path)[0];
 
 				// If path ends with slash, it must be a nested git repo
-				if (current.path[current.path.length-1] === '/') {
+				if (current.path[current.path.length - 1] === '/') {
 					continue;
 				}
 
@@ -600,53 +618,61 @@ export class Repository {
 		});
 	}
 
-	public getHEAD(): TPromise<IHead> {
+	getHEAD(): TPromise<IRef> {
 		return this.run(['symbolic-ref', '--short', 'HEAD'], { log: false }).then((result) => {
 			if (!result.stdout) {
-				return TPromise.wrapError<IHead>(new Error('Not in a branch'));
+				return TPromise.wrapError<IRef>(new Error('Not in a branch'));
 			}
 
-			return TPromise.as<IHead>({ name: result.stdout.trim() });
+			return TPromise.as<IRef>({ name: result.stdout.trim(), commit: void 0, type: RefType.Head });
 		}, (err) => {
 			return this.run(['rev-parse', 'HEAD'], { log: false }).then((result) => {
 				if (!result.stdout) {
-					return TPromise.wrapError<IHead>(new Error('Error parsing HEAD'));
+					return TPromise.wrapError<IRef>(new Error('Error parsing HEAD'));
 				}
 
-				return TPromise.as<IHead>({ commit: result.stdout.trim() });
+				return TPromise.as<IRef>({ name: void 0, commit: result.stdout.trim(), type: RefType.Head });
 			});
 		});
 	}
 
-	public getHeads(): TPromise<ITag[]> {
-		return this.run(['for-each-ref', '--format', '%(refname:short) %(objectname)', 'refs/heads/'], { log: false }).then((result) => {
+	getRefs(): TPromise<IRef[]> {
+		return this.run(['for-each-ref', '--format', '%(refname) %(objectname)'], { log: false }).then(result => {
 			return result.stdout.trim().split('\n')
-				.filter(b => !!b)
-				.map(b => b.trim().split(' '))
-				.map(a => ({ name: a[0], commit: a[1] }));
+				.filter(line => !!line)
+				.map(line => {
+					let match: RegExpExecArray;
+
+					if (match = /^refs\/heads\/([^ ]+) ([0-9a-f]{40})$/.exec(line)) {
+						return { name: match[1], commit: match[2], type: RefType.Head };
+					} else if (match = /^refs\/remotes\/([^/]+)\/([^ ]+) ([0-9a-f]{40})$/.exec(line)) {
+						return { name: `${match[1]}/${match[2]}`, commit: match[3], type: RefType.RemoteHead, remote: match[1] };
+					} else if (match = /^refs\/tags\/([^ ]+) ([0-9a-f]{40})$/.exec(line)) {
+						return { name: match[1], commit: match[2], type: RefType.Tag };
+					}
+
+					return null;
+				})
+				.filter(ref => !!ref);
 		});
 	}
 
-	public getTags(): TPromise<IHead[]> {
-		return this.run(['for-each-ref', '--format', '%(refname:short) %(objectname)', 'refs/tags/'], { log: false }).then((result) => {
-			return result.stdout.trim().split('\n')
-				.filter(b => !!b)
-				.map(b => b.trim().split(' '))
-				.map(a => ({ name: a[0], commit: a[1] }));
-		});
-	}
+	getRemotes(): TPromise<IRemote[]> {
+		const regex = /^([^\s]+)\s+([^\s]+)\s/;
 
-	public getRemotes(): TPromise<IRemote[]> {
-		return this.run(['remote'], { log: false })
+		return this.run(['remote', '--verbose'], { log: false })
 			.then(result => result.stdout
 				.trim()
 				.split('\n')
 				.filter(b => !!b)
-				.map(name => ({ name }))
+				.map(line => regex.exec(line))
+				.filter(g => !!g)
+				.map(groups => ({ name: groups[1], url: groups[2] }))
+				.filter(uniqueFilter<{ name: string; }>(g => g.name))
 			);
 	}
 
-	public getBranch(branch: string): TPromise<IBranch> {
+	getBranch(branch: string): TPromise<IBranch> {
 		if (branch === 'HEAD') {
 			return this.getHEAD();
 		}
@@ -689,7 +715,38 @@ export class Repository {
 		});
 	}
 
-	public onOutput(listener: (output: string) => void): () => void {
+	getCommitTemplate(): TPromise<string> {
+		return this.run(['config', '--get', 'commit.template']).then(result => {
+			if (!result.stdout) {
+				return '';
+			}
+
+			// https://github.com/git/git/blob/3a0f269e7c82aa3a87323cb7ae04ac5f129f036b/path.c#L612
+			const homedir = os.homedir();
+			let templatePath = result.stdout.trim()
+				.replace(/^~([^\/]*)\//, (_, user) => `${user ? path.join(path.dirname(homedir), user) : homedir}/`);
+
+			if (!path.isAbsolute(templatePath)) {
+				templatePath = path.join(this.repository, templatePath);
+			}
+
+			return pfs.readFile(templatePath, 'utf8').then(raw => raw.replace(/^\s*#.*$\n?/gm, '').trim());
+		}, () => '');
+	}
+
+	getCommit(ref: string): TPromise<ICommit> {
+		return this.run(['show', '-s', '--format=%H\n%B', ref]).then(result => {
+			const match = /^([0-9a-f]{40})\n([^]*)$/m.exec(result.stdout.trim());
+
+			if (!match) {
+				return TPromise.wrapError('bad commit format');
+			}
+
+			return { hash: match[1], message: match[2] };
+		});
+	}
+
+	onOutput(listener: (output: string) => void): () => void {
 		return this.git.onOutput(listener);
 	}
 }

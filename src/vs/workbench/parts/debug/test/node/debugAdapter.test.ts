@@ -14,7 +14,7 @@ suite('Debug - Adapter', () => {
 	var rawAdapter = {
 		type: 'mock',
 		label: 'Mock Debug',
-		enableBreakpointsFor: { 'languageIds': [ 'markdown' ] },
+		enableBreakpointsFor: { 'languageIds': ['markdown'] },
 		program: './out/mock/mockDebug.js',
 		win: {
 			runtime: 'winRuntime'
@@ -27,7 +27,7 @@ suite('Debug - Adapter', () => {
 		},
 		configurationAttributes: {
 			launch: {
-				required: [ 'program' ],
+				required: ['program'],
 				properties: {
 					program: {
 						'type': 'string',
@@ -37,7 +37,7 @@ suite('Debug - Adapter', () => {
 				}
 			}
 		},
-
+		variables: null,
 		initialConfigurations: [
 			{
 				name: 'Mock-Debug',
@@ -46,10 +46,10 @@ suite('Debug - Adapter', () => {
 				program: 'readme.md'
 			}
 		]
-	}
+	};
 
 	setup(() => {
-		adapter = new Adapter(rawAdapter, null, extensionFolderPath);
+		adapter = new Adapter(rawAdapter, { extensionFolderPath, id: 'adapter', name: 'myAdapter', version: '1.0.0', publisher: 'vscode', isBuiltin: false, engines: null }, null, null, null);
 	});
 
 	teardown(() => {

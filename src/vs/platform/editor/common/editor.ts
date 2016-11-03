@@ -5,15 +5,17 @@
 'use strict';
 
 import URI from 'vs/base/common/uri';
-import {TPromise} from 'vs/base/common/winjs.base';
-import {IEventEmitter} from 'vs/base/common/eventEmitter';
-
-import {createDecorator, ServiceIdentifier} from 'vs/platform/instantiation/common/instantiation';
+import { TPromise } from 'vs/base/common/winjs.base';
+import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
+import Event from 'vs/base/common/event';
+import { IDisposable } from 'vs/base/common/lifecycle';
 
 export const IEditorService = createDecorator<IEditorService>('editorService');
 
 export interface IEditorService {
-	serviceId: ServiceIdentifier<any>;
+
+	_serviceBrand: any;
+
 	/**
 	 * Specific overload to open an instance of IResourceInput.
 	 */
@@ -25,7 +27,19 @@ export interface IEditorService {
 	resolveEditorModel(input: IResourceInput, refresh?: boolean): TPromise<ITextEditorModel>;
 }
 
-export interface IEditorModel extends IEventEmitter {
+export interface IEditorModel {
+
+	onDispose: Event<void>;
+
+	/**
+	 * Loads the model.
+	 */
+	load(): TPromise<IEditorModel>;
+
+	/**
+	 * Dispose associated resources
+	 */
+	dispose(): void;
 }
 
 export interface ITextEditorModel extends IEditorModel {
@@ -40,41 +54,18 @@ export interface IResourceInput {
 	resource: URI;
 
 	/**
-	 * The mime type of the text input if known.
+	 * The encoding of the text input if known.
 	 */
-	mime?: string;
+	encoding?: string;
 
 	/**
 	 * Optional options to use when opening the text input.
 	 */
-	options?: {
+	options?: ITextEditorOptions;
+}
 
-		/**
-		 * Text editor selection.
-		 */
-		selection?: {
-			startLineNumber: number;
-			startColumn: number;
-			endLineNumber?: number;
-			endColumn?: number;
-		};
+export interface IEditorControl {
 
-		/**
-		 * Will force the editor to open even if the input is already showing.
-		 */
-		forceOpen?: boolean;
-
-		/**
-		 * Will open the editor but not move keyboard focus into the editor.
-		 */
-		preserveFocus?: boolean;
-
-		/**
-		 * Ensures that the editor is being activated even if the input is already showing. This only applies
-		 * if there is more than one editor open already and preserveFocus is set to false.
-		 */
-		forceActive?: boolean;
-	};
 }
 
 export interface IEditor {
@@ -102,12 +93,17 @@ export interface IEditor {
 	/**
 	 * Returns the underlying control of this editor.
 	 */
-	getControl(): IEventEmitter;
+	getControl(): IEditorControl;
 
 	/**
 	 * Asks the underlying control to focus.
 	 */
 	focus(): void;
+
+	/**
+	 * Finds out if this editor is visible or not.
+	 */
+	isVisible(): boolean;
 }
 
 /**
@@ -115,29 +111,41 @@ export interface IEditor {
  */
 export enum Position {
 
-	/** Opens the editor in the LEFT most position replacing the input currently showing */
-	LEFT = 0,
+	/** Opens the editor in the first position replacing the input currently showing */
+	ONE = 0,
 
-	/** Opens the editor in the CENTER position replacing the input currently showing */
-	CENTER = 1,
+	/** Opens the editor in the second position replacing the input currently showing */
+	TWO = 1,
 
-	/** Opens the editor in the RIGHT most position replacing the input currently showing */
-	RIGHT = 2
+	/** Opens the editor in the third most position replacing the input currently showing */
+	THREE = 2
 }
 
-export const POSITIONS = [Position.LEFT, Position.CENTER, Position.RIGHT];
+export const POSITIONS = [Position.ONE, Position.TWO, Position.THREE];
 
-export interface IEditorInput extends IEventEmitter {
+export enum Direction {
+	LEFT,
+	RIGHT
+}
 
-	/**
-	 * Returns the identifier of this input or null if none.
-	 */
-	getId(): string;
+export interface IEditorInput extends IDisposable {
+
+	onDispose: Event<void>;
 
 	/**
 	 * Returns the display name of this input.
 	 */
 	getName(): string;
+
+	/**
+	 * Returns the display description of this input.
+	 */
+	getDescription(verbose?: boolean): string;
+
+	/**
+	 * Returns if this input is dirty or not.
+	 */
+	isDirty(): boolean;
 
 	/**
 	 * Returns if the other object matches this input.
@@ -148,7 +156,50 @@ export interface IEditorInput extends IEventEmitter {
 export interface IEditorOptions {
 
 	/**
-	 * Returns if the other object matches this options.
+	 * Tells the editor to not receive keyboard focus when the editor is being opened. By default,
+	 * the editor will receive keyboard focus on open.
 	 */
-	matches(other: any): boolean;
+	preserveFocus?: boolean;
+
+	/**
+	 * Tells the editor to replace the editor input in the editor even if it is identical to the one
+	 * already showing. By default, the editor will not replace the input if it is identical to the
+	 * one showing.
+	 */
+	forceOpen?: boolean;
+
+	/**
+	 * Will reveal the editor if it is already opened and visible in any of the opened editor groups.
+	 */
+	revealIfVisible?: boolean;
+
+	/**
+	 * An editor that is pinned remains in the editor stack even when another editor is being opened.
+	 * An editor that is not pinned will always get replaced by another editor that is not pinned.
+	 */
+	pinned?: boolean;
+
+	/**
+	 * The index in the document stack where to insert the editor into when opening.
+	 */
+	index?: number;
+
+	/**
+	 * An active editor that is opened will show its contents directly. Set to true to open an editor
+	 * in the background.
+	 */
+	inactive?: boolean;
+}
+
+export interface ITextEditorOptions extends IEditorOptions {
+
+	/**
+	 * Text editor selection.
+	 */
+	selection?: {
+		startLineNumber: number;
+		startColumn: number;
+		endLineNumber?: number;
+		endColumn?: number;
+	};
 }

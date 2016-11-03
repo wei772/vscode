@@ -7,8 +7,8 @@
 
 import 'vs/css!./aria';
 import nls = require('vs/nls');
-import {isMacintosh} from 'vs/base/common/platform';
-import {Builder, $} from 'vs/base/browser/builder';
+import { isMacintosh } from 'vs/base/common/platform';
+import { Builder, $ } from 'vs/base/browser/builder';
 
 let ariaContainer: Builder;
 let alertContainer: Builder;
@@ -40,7 +40,7 @@ export function status(msg: string): void {
 
 function insertMessage(target: Builder, msg: string): void {
 	if (!ariaContainer) {
-		console.warn('ARIA support needs a container. Call setARIAContainer() first.');
+		// console.warn('ARIA support needs a container. Call setARIAContainer() first.');
 		return;
 	}
 

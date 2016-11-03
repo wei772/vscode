@@ -4,22 +4,22 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {clone} from 'vs/base/common/objects';
-import {IDisposable, dispose} from 'vs/base/common/lifecycle';
-import {IThreadService, Remotable} from 'vs/platform/thread/common/thread';
-import {IConfigurationService} from 'vs/platform/configuration/common/configuration';
-import Event, {Emitter} from 'vs/base/common/event';
-import {WorkspaceConfiguration} from 'vscode';
+import { mixin } from 'vs/base/common/objects';
+import Event, { Emitter } from 'vs/base/common/event';
+import { WorkspaceConfiguration } from 'vscode';
+import { ExtHostConfigurationShape, MainThreadConfigurationShape } from './extHost.protocol';
+import { ConfigurationTarget } from 'vs/workbench/services/configuration/common/configurationEditing';
 
-@Remotable.ExtHostContext('ExtHostConfiguration')
-export class ExtHostConfiguration {
+export class ExtHostConfiguration extends ExtHostConfigurationShape {
 
+	private _proxy: MainThreadConfigurationShape;
 	private _config: any;
-	private _hasConfig: boolean;
-	private _onDidChangeConfiguration: Emitter<void>;
+	private _onDidChangeConfiguration = new Emitter<void>();
 
-	constructor() {
-		this._onDidChangeConfiguration = new Emitter<void>();
+	constructor(proxy: MainThreadConfigurationShape, configuration: any) {
+		super();
+		this._proxy = proxy;
+		this._config = configuration;
 	}
 
 	get onDidChangeConfiguration(): Event<void> {
@@ -28,33 +28,42 @@ export class ExtHostConfiguration {
 
 	public $acceptConfigurationChanged(config: any) {
 		this._config = config;
-		this._hasConfig = true;
 		this._onDidChangeConfiguration.fire(undefined);
 	}
 
 	public getConfiguration(section?: string): WorkspaceConfiguration {
-		if (!this._hasConfig) {
-			return;
-		}
 
 		const config = section
 			? ExtHostConfiguration._lookUp(section, this._config)
 			: this._config;
 
-
-		let result = config ? clone(config) : {};
-		// result = Object.freeze(result);
-		result.has = function(key: string): boolean {
-			return typeof ExtHostConfiguration._lookUp(key, config) !== 'undefined';
-		};
-		result.get = function <T>(key: string, defaultValue?: T): T {
-			let result = ExtHostConfiguration._lookUp(key, config);
-			if (typeof result === 'undefined') {
-				result = defaultValue;
+		const result: WorkspaceConfiguration = {
+			has(key: string): boolean {
+				return typeof ExtHostConfiguration._lookUp(key, config) !== 'undefined';
+			},
+			get<T>(key: string, defaultValue?: T): T {
+				let result = ExtHostConfiguration._lookUp(key, config);
+				if (typeof result === 'undefined') {
+					result = defaultValue;
+				}
+				return result;
+			},
+			update: (key: string, value: any, global: boolean = false) => {
+				key = section ? `${section}.${key}` : key;
+				const target = global ? ConfigurationTarget.USER : ConfigurationTarget.WORKSPACE;
+				if (value !== void 0) {
+					return this._proxy.$updateConfigurationOption(target, key, value);
+				} else {
+					return this._proxy.$removeConfigurationOption(target, key);
+				}
 			}
-			return result;
 		};
-		return result;
+
+		if (typeof config === 'object') {
+			mixin(result, config, false);
+		}
+
+		return Object.freeze(result);
 	}
 
 	private static _lookUp(section: string, config: any) {
@@ -68,27 +77,5 @@ export class ExtHostConfiguration {
 		}
 
 		return node;
-	}
-}
-
-@Remotable.MainContext('MainProcessConfigurationServiceHelper')
-export class MainThreadConfiguration {
-
-	private _configurationService: IConfigurationService;
-	private _toDispose: IDisposable;
-	private _proxy: ExtHostConfiguration;
-
-	constructor(@IConfigurationService configurationService: IConfigurationService,
-		@IThreadService threadService: IThreadService) {
-
-		this._configurationService = configurationService;
-		this._proxy = threadService.getRemotable(ExtHostConfiguration);
-
-		this._toDispose = this._configurationService.onDidUpdateConfiguration(event => this._proxy.$acceptConfigurationChanged(event.config));
-		this._proxy.$acceptConfigurationChanged(this._configurationService.getConfiguration());
-	}
-
-	public dispose(): void {
-		this._toDispose = dispose(this._toDispose);
 	}
 }

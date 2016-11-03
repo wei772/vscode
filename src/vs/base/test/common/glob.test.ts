@@ -5,6 +5,7 @@
 'use strict';
 
 import * as assert from 'assert';
+import * as path from 'path';
 import glob = require('vs/base/common/glob');
 
 suite('Glob', () => {
@@ -210,6 +211,19 @@ suite('Glob', () => {
 		assert(!glob.match(p, '/some.js/test'));
 		assert(!glob.match(p, '\\some.js\\test'));
 
+		p = '**/project.json';
+
+		assert(glob.match(p, 'project.json'));
+		assert(glob.match(p, '/project.json'));
+		assert(glob.match(p, 'some/folder/project.json'));
+		assert(!glob.match(p, 'some/folder/file_project.json'));
+		assert(!glob.match(p, 'some/folder/fileproject.json'));
+		// assert(!glob.match(p, '/rrproject.json')); TODO@ben this still fails if T1-3 are disabled
+		assert(!glob.match(p, 'some/rrproject.json'));
+		// assert(!glob.match(p, 'rrproject.json'));
+		// assert(!glob.match(p, '\\rrproject.json'));
+		assert(!glob.match(p, 'some\\rrproject.json'));
+
 		p = 'test/**';
 		assert(glob.match(p, 'test'));
 		assert(glob.match(p, 'test/foo.js'));
@@ -278,6 +292,12 @@ suite('Glob', () => {
 		assert(!glob.match(p, 'some/test/tempting'));
 		assert(!glob.match(p, 'some\\test\\tempting'));
 		assert(!glob.match(p, 'C:\\\\some\\test\\tempting'));
+
+		p = '{**/package.json,**/project.json}';
+		assert(glob.match(p, 'package.json'));
+		assert(glob.match(p, '/package.json'));
+		assert(!glob.match(p, 'xpackage.json'));
+		assert(!glob.match(p, '/xpackage.json'));
 	});
 
 	test('brace expansion', function () {
@@ -382,10 +402,10 @@ suite('Glob', () => {
 			}
 		};
 
-		assert.equal('**/*.js', glob.match(expression, 'test.js', siblings));
-		assert(!glob.match(expression, 'test.js', []));
-		assert(!glob.match(expression, 'test.js', ['te.ts']));
-		assert(!glob.match(expression, 'test.js'));
+		assert.strictEqual('**/*.js', glob.match(expression, 'test.js', () => siblings));
+		assert.strictEqual(glob.match(expression, 'test.js', () => []), null);
+		assert.strictEqual(glob.match(expression, 'test.js', () => ['te.ts']), null);
+		assert.strictEqual(glob.match(expression, 'test.js'), null);
 
 		expression = {
 			'**/*.js': {
@@ -393,18 +413,18 @@ suite('Glob', () => {
 			}
 		};
 
-		assert(!glob.match(expression, 'test.js', siblings));
+		assert.strictEqual(glob.match(expression, 'test.js', () => siblings), null);
 
 		expression = <any>{
 			'**/*.js': {
 			}
 		};
 
-		assert.equal('**/*.js', glob.match(expression, 'test.js', siblings));
+		assert.strictEqual('**/*.js', glob.match(expression, 'test.js', () => siblings));
 
 		expression = {};
 
-		assert(!glob.match(expression, 'test.js', siblings));
+		assert.strictEqual(glob.match(expression, 'test.js', () => siblings), null);
 	});
 
 	test('expression support (multiple)', function () {
@@ -418,11 +438,11 @@ suite('Glob', () => {
 			'**/*.bananas': { bananas: true }
 		};
 
-		assert.equal('**/*.js', glob.match(expression, 'test.js', siblings));
-		assert.equal('**/*.as', glob.match(expression, 'test.as', siblings));
-		assert.equal('**/*.bananas', glob.match(expression, 'test.bananas', siblings));
-		assert.equal('**/*.bananas', glob.match(expression, 'test.bananas'));
-		assert(!glob.match(expression, 'test.foo', siblings));
+		assert.strictEqual('**/*.js', glob.match(expression, 'test.js', () => siblings));
+		assert.strictEqual('**/*.as', glob.match(expression, 'test.as', () => siblings));
+		assert.strictEqual('**/*.bananas', glob.match(expression, 'test.bananas', () => siblings));
+		assert.strictEqual('**/*.bananas', glob.match(expression, 'test.bananas'));
+		assert.strictEqual(glob.match(expression, 'test.foo', () => siblings), null);
 	});
 
 	test('brackets', function () {
@@ -441,12 +461,10 @@ suite('Glob', () => {
 		assert(glob.match(p, 'foo.f'));
 	});
 
-	test('backslash agnostic', function () {
+	test('full path', function () {
 		var p = 'testing/this/foo.txt';
 
-		assert(glob.match(p, 'testing/this/foo.txt'));
-		assert(glob.match(p, 'testing\\this\\foo.txt'));
-		assert(glob.match(p, 'testing/this\\foo.txt'));
+		assert(glob.match(p, 'testing/this/foo.txt'.replace('/', path.sep)));
 	});
 
 	test('prefix agnostic', function () {
@@ -570,4 +588,280 @@ suite('Glob', () => {
 		assert.deepEqual(glob.splitGlobAware('foo,bar,[foo,bar]', ','), ['foo', 'bar', '[foo,bar]']);
 		assert.deepEqual(glob.splitGlobAware('[foo,bar],foo,bar,[foo,bar]', ','), ['[foo,bar]', 'foo', 'bar', '[foo,bar]']);
 	});
+
+	test('expression with disabled glob', function () {
+		var expr = { '**/*.js': false };
+
+		assert.strictEqual(glob.match(expr, 'foo.js'), null);
+	});
+
+	test('expression with two non-trivia globs', function () {
+		var expr = {
+			'**/*.j?': true,
+			'**/*.t?': true
+		};
+
+		assert.strictEqual(glob.match(expr, 'foo.js'), '**/*.j?');
+		assert.strictEqual(glob.match(expr, 'foo.as'), null);
+	});
+
+	test('expression with empty glob', function () {
+		var expr = { '': true };
+
+		assert.strictEqual(glob.match(expr, 'foo.js'), null);
+	});
+
+	test('expression with other falsy value', function () {
+		var expr = { '**/*.js': 0 };
+
+		assert.strictEqual(glob.match(expr, 'foo.js'), '**/*.js');
+	});
+
+	test('expression with two basename globs', function () {
+		var expr = {
+			'**/bar': true,
+			'**/baz': true
+		};
+
+		assert.strictEqual(glob.match(expr, 'bar'), '**/bar');
+		assert.strictEqual(glob.match(expr, 'foo'), null);
+		assert.strictEqual(glob.match(expr, 'foo/bar'), '**/bar');
+		assert.strictEqual(glob.match(expr, 'foo\\bar'), '**/bar');
+		assert.strictEqual(glob.match(expr, 'foo/foo'), null);
+	});
+
+	test('expression with two basename globs and a siblings expression', function () {
+		var expr = {
+			'**/bar': true,
+			'**/baz': true,
+			'**/*.js': { when: '$(basename).ts' }
+		};
+
+		var sibilings = () => ['foo.ts', 'foo.js', 'foo', 'bar'];
+
+		assert.strictEqual(glob.match(expr, 'bar', sibilings), '**/bar');
+		assert.strictEqual(glob.match(expr, 'foo', sibilings), null);
+		assert.strictEqual(glob.match(expr, 'foo/bar', sibilings), '**/bar');
+		assert.strictEqual(glob.match(expr, 'foo\\bar', sibilings), '**/bar');
+		assert.strictEqual(glob.match(expr, 'foo/foo', sibilings), null);
+		assert.strictEqual(glob.match(expr, 'foo.js', sibilings), '**/*.js');
+		assert.strictEqual(glob.match(expr, 'bar.js', sibilings), null);
+	});
+
+	test('expression with multipe basename globs', function () {
+		var expr = {
+			'**/bar': true,
+			'{**/baz,**/foo}': true
+		};
+
+		assert.strictEqual(glob.match(expr, 'bar'), '**/bar');
+		assert.strictEqual(glob.match(expr, 'foo'), '{**/baz,**/foo}');
+		assert.strictEqual(glob.match(expr, 'baz'), '{**/baz,**/foo}');
+		assert.strictEqual(glob.match(expr, 'abc'), null);
+	});
+
+	test('falsy expression/pattern', function () {
+		assert.strictEqual(glob.match(null, 'foo'), false);
+		assert.strictEqual(glob.match('', 'foo'), false);
+		assert.strictEqual(glob.parse(null)('foo'), false);
+		assert.strictEqual(glob.parse('')('foo'), false);
+	});
+
+	test('falsy path', function () {
+		assert.strictEqual(glob.parse('foo')(null), false);
+		assert.strictEqual(glob.parse('foo')(''), false);
+		assert.strictEqual(glob.parse('**/*.j?')(null), false);
+		assert.strictEqual(glob.parse('**/*.j?')(''), false);
+		assert.strictEqual(glob.parse('**/*.foo')(null), false);
+		assert.strictEqual(glob.parse('**/*.foo')(''), false);
+		assert.strictEqual(glob.parse('**/foo')(null), false);
+		assert.strictEqual(glob.parse('**/foo')(''), false);
+		assert.strictEqual(glob.parse('{**/baz,**/foo}')(null), false);
+		assert.strictEqual(glob.parse('{**/baz,**/foo}')(''), false);
+		assert.strictEqual(glob.parse('{**/*.baz,**/*.foo}')(null), false);
+		assert.strictEqual(glob.parse('{**/*.baz,**/*.foo}')(''), false);
+	});
+
+	test('expression/pattern basename', function () {
+		assert.strictEqual(glob.parse('**/foo')('bar/baz', 'baz'), false);
+		assert.strictEqual(glob.parse('**/foo')('bar/foo', 'foo'), true);
+
+		assert.strictEqual(glob.parse('{**/baz,**/foo}')('baz/bar', 'bar'), false);
+		assert.strictEqual(glob.parse('{**/baz,**/foo}')('baz/foo', 'foo'), true);
+
+		var expr = { '**/*.js': { when: '$(basename).ts' } };
+		var sibilings = () => ['foo.ts', 'foo.js'];
+
+		assert.strictEqual(glob.parse(expr)('bar/baz.js', 'baz.js', sibilings), null);
+		assert.strictEqual(glob.parse(expr)('bar/foo.js', 'foo.js', sibilings), '**/*.js');
+	});
+
+	test('expression/pattern basename terms', function () {
+		assert.deepStrictEqual(glob.getBasenameTerms(glob.parse('**/*.foo')), []);
+		assert.deepStrictEqual(glob.getBasenameTerms(glob.parse('**/foo')), ['foo']);
+		assert.deepStrictEqual(glob.getBasenameTerms(glob.parse('**/foo/')), ['foo']);
+		assert.deepStrictEqual(glob.getBasenameTerms(glob.parse('{**/baz,**/foo}')), ['baz', 'foo']);
+		assert.deepStrictEqual(glob.getBasenameTerms(glob.parse('{**/baz/,**/foo/}')), ['baz', 'foo']);
+
+		assert.deepStrictEqual(glob.getBasenameTerms(glob.parse({
+			'**/foo': true,
+			'{**/bar,**/baz}': true,
+			'{**/bar2/,**/baz2/}': true,
+			'**/bulb': false
+		})), ['foo', 'bar', 'baz', 'bar2', 'baz2']);
+		assert.deepStrictEqual(glob.getBasenameTerms(glob.parse({
+			'**/foo': { when: '$(basename).zip' },
+			'**/bar': true
+		})), ['bar']);
+	});
+
+	test('expression/pattern optimization for basenames', function () {
+		assert.deepStrictEqual(glob.getBasenameTerms(glob.parse('**/foo/**')), []);
+		assert.deepStrictEqual(glob.getBasenameTerms(glob.parse('**/foo/**', { trimForExclusions: true })), ['foo']);
+
+		testOptimizationForBasenames('**/*.foo/**', [], [['baz/bar.foo/bar/baz', true]]);
+		testOptimizationForBasenames('**/foo/**', ['foo'], [['bar/foo', true], ['bar/foo/baz', false]]);
+		testOptimizationForBasenames('{**/baz/**,**/foo/**}', ['baz', 'foo'], [['bar/baz', true], ['bar/foo', true]]);
+
+		testOptimizationForBasenames({
+			'**/foo/**': true,
+			'{**/bar/**,**/baz/**}': true,
+			'**/bulb/**': false
+		}, ['foo', 'bar', 'baz'], [
+				['bar/foo', '**/foo/**'],
+				['foo/bar', '{**/bar/**,**/baz/**}'],
+				['bar/nope', null]
+			]);
+
+		const siblingsFn = () => ['baz', 'baz.zip', 'nope'];
+		testOptimizationForBasenames({
+			'**/foo/**': { when: '$(basename).zip' },
+			'**/bar/**': true
+		}, ['bar'], [
+				['bar/foo', null],
+				['bar/foo/baz', null],
+				['bar/foo/nope', null],
+				['foo/bar', '**/bar/**'],
+			], [
+				null,
+				siblingsFn,
+				siblingsFn
+			]);
+	});
+
+	function testOptimizationForBasenames(pattern: string | glob.IExpression, basenameTerms: string[], matches: [string, string | boolean][], siblingsFns: (() => string[])[] = []) {
+		const parsed = glob.parse(<glob.IExpression>pattern, { trimForExclusions: true });
+		assert.deepStrictEqual(glob.getBasenameTerms(parsed), basenameTerms);
+		matches.forEach(([text, result], i) => {
+			assert.strictEqual(parsed(text, null, siblingsFns[i]), result);
+		});
+	}
+
+	test('trailing slash', function () {
+		// Testing existing (more or less intuitive) behavior
+		assert.strictEqual(glob.parse('**/foo/')('bar/baz', 'baz'), false);
+		assert.strictEqual(glob.parse('**/foo/')('bar/foo', 'foo'), true);
+		assert.strictEqual(glob.parse('**/*.foo/')('bar/file.baz', 'file.baz'), false);
+		assert.strictEqual(glob.parse('**/*.foo/')('bar/file.foo', 'file.foo'), true);
+		assert.strictEqual(glob.parse('{**/foo/,**/abc/}')('bar/baz', 'baz'), false);
+		assert.strictEqual(glob.parse('{**/foo/,**/abc/}')('bar/foo', 'foo'), true);
+		assert.strictEqual(glob.parse('{**/foo/,**/abc/}')('bar/abc', 'abc'), true);
+		assert.strictEqual(glob.parse('{**/foo/,**/abc/}', { trimForExclusions: true })('bar/baz', 'baz'), false);
+		assert.strictEqual(glob.parse('{**/foo/,**/abc/}', { trimForExclusions: true })('bar/foo', 'foo'), true);
+		assert.strictEqual(glob.parse('{**/foo/,**/abc/}', { trimForExclusions: true })('bar/abc', 'abc'), true);
+	});
+
+	test('expression/pattern path', function () {
+		assert.strictEqual(glob.parse('**/foo/bar')(nativeSep('foo/baz'), 'baz'), false);
+		assert.strictEqual(glob.parse('**/foo/bar')(nativeSep('foo/bar'), 'bar'), true);
+		assert.strictEqual(glob.parse('**/foo/bar')(nativeSep('bar/foo/bar'), 'bar'), true);
+		assert.strictEqual(glob.parse('**/foo/bar/**')(nativeSep('bar/foo/bar'), 'bar'), true);
+		assert.strictEqual(glob.parse('**/foo/bar/**')(nativeSep('bar/foo/bar/baz'), 'baz'), true);
+		assert.strictEqual(glob.parse('**/foo/bar/**', { trimForExclusions: true })(nativeSep('bar/foo/bar'), 'bar'), true);
+		assert.strictEqual(glob.parse('**/foo/bar/**', { trimForExclusions: true })(nativeSep('bar/foo/bar/baz'), 'baz'), false);
+
+		assert.strictEqual(glob.parse('foo/bar')(nativeSep('foo/baz'), 'baz'), false);
+		assert.strictEqual(glob.parse('foo/bar')(nativeSep('foo/bar'), 'bar'), true);
+		assert.strictEqual(glob.parse('foo/bar')(nativeSep('bar/foo/bar'), 'bar'), false);
+		assert.strictEqual(glob.parse('foo/bar/**')(nativeSep('foo/bar/baz'), 'baz'), true);
+		assert.strictEqual(glob.parse('foo/bar/**', { trimForExclusions: true })(nativeSep('foo/bar'), 'bar'), true);
+		assert.strictEqual(glob.parse('foo/bar/**', { trimForExclusions: true })(nativeSep('foo/bar/baz'), 'baz'), false);
+	});
+
+	test('expression/pattern paths', function () {
+		assert.deepStrictEqual(glob.getPathTerms(glob.parse('**/*.foo')), []);
+		assert.deepStrictEqual(glob.getPathTerms(glob.parse('**/foo')), []);
+		assert.deepStrictEqual(glob.getPathTerms(glob.parse('**/foo/bar')), ['*/foo/bar']);
+		assert.deepStrictEqual(glob.getPathTerms(glob.parse('**/foo/bar/')), ['*/foo/bar']);
+		// Not supported
+		// assert.deepStrictEqual(glob.getPathTerms(glob.parse('{**/baz/bar,**/foo/bar,**/bar}')), ['*/baz/bar', '*/foo/bar']);
+		// assert.deepStrictEqual(glob.getPathTerms(glob.parse('{**/baz/bar/,**/foo/bar/,**/bar/}')), ['*/baz/bar', '*/foo/bar']);
+
+		const parsed = glob.parse({
+			'**/foo/bar': true,
+			'**/foo2/bar2': true,
+			// Not supported
+			// '{**/bar/foo,**/baz/foo}': true,
+			// '{**/bar2/foo/,**/baz2/foo/}': true,
+			'**/bulb': true,
+			'**/bulb2': true,
+			'**/bulb/foo': false
+		});
+		assert.deepStrictEqual(glob.getPathTerms(parsed), ['*/foo/bar', '*/foo2/bar2']);
+		assert.deepStrictEqual(glob.getBasenameTerms(parsed), ['bulb', 'bulb2']);
+		assert.deepStrictEqual(glob.getPathTerms(glob.parse({
+			'**/foo/bar': { when: '$(basename).zip' },
+			'**/bar/foo': true,
+			'**/bar2/foo2': true
+		})), ['*/bar/foo', '*/bar2/foo2']);
+	});
+
+	test('expression/pattern optimization for paths', function () {
+		assert.deepStrictEqual(glob.getPathTerms(glob.parse('**/foo/bar/**')), []);
+		assert.deepStrictEqual(glob.getPathTerms(glob.parse('**/foo/bar/**', { trimForExclusions: true })), ['*/foo/bar']);
+
+		testOptimizationForPaths('**/*.foo/bar/**', [], [[nativeSep('baz/bar.foo/bar/baz'), true]]);
+		testOptimizationForPaths('**/foo/bar/**', ['*/foo/bar'], [[nativeSep('bar/foo/bar'), true], [nativeSep('bar/foo/bar/baz'), false]]);
+		// Not supported
+		// testOptimizationForPaths('{**/baz/bar/**,**/foo/bar/**}', ['*/baz/bar', '*/foo/bar'], [[nativeSep('bar/baz/bar'), true], [nativeSep('bar/foo/bar'), true]]);
+
+		testOptimizationForPaths({
+			'**/foo/bar/**': true,
+			// Not supported
+			// '{**/bar/bar/**,**/baz/bar/**}': true,
+			'**/bulb/bar/**': false
+		}, ['*/foo/bar'], [
+				[nativeSep('bar/foo/bar'), '**/foo/bar/**'],
+				// Not supported
+				// [nativeSep('foo/bar/bar'), '{**/bar/bar/**,**/baz/bar/**}'],
+				[nativeSep('/foo/bar/nope'), null]
+			]);
+
+		const siblingsFn = () => ['baz', 'baz.zip', 'nope'];
+		testOptimizationForPaths({
+			'**/foo/123/**': { when: '$(basename).zip' },
+			'**/bar/123/**': true
+		}, ['*/bar/123'], [
+				[nativeSep('bar/foo/123'), null],
+				[nativeSep('bar/foo/123/baz'), null],
+				[nativeSep('bar/foo/123/nope'), null],
+				[nativeSep('foo/bar/123'), '**/bar/123/**'],
+			], [
+				null,
+				siblingsFn,
+				siblingsFn
+			]);
+	});
+
+	function testOptimizationForPaths(pattern: string | glob.IExpression, pathTerms: string[], matches: [string, string | boolean][], siblingsFns: (() => string[])[] = []) {
+		const parsed = glob.parse(<glob.IExpression>pattern, { trimForExclusions: true });
+		assert.deepStrictEqual(glob.getPathTerms(parsed), pathTerms);
+		matches.forEach(([text, result], i) => {
+			assert.strictEqual(parsed(text, null, siblingsFns[i]), result);
+		});
+	}
+
+	function nativeSep(slashPath: string): string {
+		return slashPath.replace(/\//g, path.sep);
+	}
 });

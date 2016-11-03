@@ -5,23 +5,22 @@
 'use strict';
 
 import nls = require('vs/nls');
-import {TPromise} from 'vs/base/common/winjs.base';
-import {onUnexpectedError} from 'vs/base/common/errors';
-import {IConfigurationRegistry, Extensions} from 'vs/platform/configuration/common/configurationRegistry';
-import {IConfigurationService} from 'vs/platform/configuration/common/configuration';
-import {ITelemetryService, NullTelemetryService} from 'vs/platform/telemetry/common/telemetry';
-import {Registry} from 'vs/platform/platform';
+import { TPromise } from 'vs/base/common/winjs.base';
+import { onUnexpectedError } from 'vs/base/common/errors';
+import { IConfigurationRegistry, Extensions } from 'vs/platform/configuration/common/configurationRegistry';
+import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
+import { ITelemetryService, NullTelemetryService } from 'vs/platform/telemetry/common/telemetry';
+import { Registry } from 'vs/platform/platform';
 
-import {ipcRenderer as ipc, crashReporter} from 'electron';
+import { ipcRenderer as ipc, crashReporter } from 'electron';
 
-let TELEMETRY_SECTION_ID = 'telemetry';
+const TELEMETRY_SECTION_ID = 'telemetry';
 
-let configurationRegistry = <IConfigurationRegistry>Registry.as(Extensions.Configuration);
+const configurationRegistry = <IConfigurationRegistry>Registry.as(Extensions.Configuration);
 configurationRegistry.registerConfiguration({
 	'id': TELEMETRY_SECTION_ID,
-	'order': 20,
+	'order': 110.5,
 	'type': 'object',
-	'title': nls.localize('telemetryConfigurationTitle', "Telemetry configuration"),
 	'properties': {
 		'telemetry.enableCrashReporter': {
 			'type': 'boolean',
@@ -51,10 +50,10 @@ export class CrashReporter {
 		this.config = null;
 	}
 
-	public start(rawConfiguration:Electron.CrashReporterStartOptions): void {
+	public start(rawConfiguration: Electron.CrashReporterStartOptions): void {
 		if (!this.isStarted) {
 
-			let sessionId = !this.sessionId
+			const sessionId = !this.sessionId
 				? this.telemetryService.getTelemetryInfo().then(info => this.sessionId = info.sessionId)
 				: TPromise.as(undefined);
 
@@ -73,7 +72,7 @@ export class CrashReporter {
 		}
 	}
 
-	private doStart(rawConfiguration:Electron.CrashReporterStartOptions): void {
+	private doStart(rawConfiguration: Electron.CrashReporterStartOptions): void {
 		const config = this.toConfiguration(rawConfiguration);
 
 		crashReporter.start(config);
@@ -82,7 +81,7 @@ export class CrashReporter {
 		ipc.send('vscode:startCrashReporter', config);
 	}
 
-	private toConfiguration(rawConfiguration:Electron.CrashReporterStartOptions): Electron.CrashReporterStartOptions {
+	private toConfiguration(rawConfiguration: Electron.CrashReporterStartOptions): Electron.CrashReporterStartOptions {
 		return JSON.parse(JSON.stringify(rawConfiguration, (key, value) => {
 			if (value === '$(sessionId)') {
 				return this.sessionId;

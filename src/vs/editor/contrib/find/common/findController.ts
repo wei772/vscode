@@ -5,72 +5,81 @@
 'use strict';
 
 import * as nls from 'vs/nls';
-import {KeyCode, KeyMod} from 'vs/base/common/keyCodes';
-import {Disposable} from 'vs/base/common/lifecycle';
-import {TPromise} from 'vs/base/common/winjs.base';
-import {IKeybindingContextKey, IKeybindingService, IKeybindings} from 'vs/platform/keybinding/common/keybindingService';
-import {Range} from 'vs/editor/common/core/range';
-import {Selection} from 'vs/editor/common/core/selection';
-import {EditorAction} from 'vs/editor/common/editorAction';
-import {Behaviour} from 'vs/editor/common/editorActionEnablement';
+import { HistoryNavigator } from 'vs/base/common/history';
+import { KeyCode, KeyMod, KeyChord } from 'vs/base/common/keyCodes';
+import { Disposable } from 'vs/base/common/lifecycle';
+import { ContextKeyExpr, RawContextKey, IContextKey, IContextKeyService } from 'vs/platform/contextkey/common/contextkey';
+import { Range } from 'vs/editor/common/core/range';
+import { Selection } from 'vs/editor/common/core/selection';
+import * as strings from 'vs/base/common/strings';
 import * as editorCommon from 'vs/editor/common/editorCommon';
-import {CommonEditorRegistry, ContextKey, EditorActionDescriptor} from 'vs/editor/common/editorCommonExtensions';
-import {FIND_IDS, FindModelBoundToEditorModel} from 'vs/editor/contrib/find/common/findModel';
-import {FindReplaceState, FindReplaceStateChangedEvent, INewFindReplaceState} from 'vs/editor/contrib/find/common/findState';
-import {OccurrencesRegistry} from 'vs/editor/common/modes';
-import {RunOnceScheduler} from 'vs/base/common/async';
+import { editorAction, commonEditorContribution, ServicesAccessor, EditorAction, EditorCommand, CommonEditorRegistry } from 'vs/editor/common/editorCommonExtensions';
+import { FIND_IDS, FindModelBoundToEditorModel, ToggleCaseSensitiveKeybinding, ToggleRegexKeybinding, ToggleWholeWordKeybinding, ShowPreviousFindTermKeybinding, ShowNextFindTermKeybinding } from 'vs/editor/contrib/find/common/findModel';
+import { FindReplaceState, FindReplaceStateChangedEvent, INewFindReplaceState } from 'vs/editor/contrib/find/common/findState';
+import { DocumentHighlightProviderRegistry } from 'vs/editor/common/modes';
+import { RunOnceScheduler, Delayer } from 'vs/base/common/async';
 
-export enum FindStartFocusAction {
+import EditorContextKeys = editorCommon.EditorContextKeys;
+
+export const enum FindStartFocusAction {
 	NoFocusChange,
 	FocusFindInput,
 	FocusReplaceInput
 }
 
 export interface IFindStartOptions {
-	forceRevealReplace:boolean;
-	seedSearchStringFromSelection:boolean;
-	seedSearchScopeFromSelection:boolean;
-	shouldFocus:FindStartFocusAction;
-	shouldAnimate:boolean;
+	forceRevealReplace: boolean;
+	seedSearchStringFromSelection: boolean;
+	shouldFocus: FindStartFocusAction;
+	shouldAnimate: boolean;
 }
 
-const CONTEXT_FIND_WIDGET_VISIBLE = 'findWidgetVisible';
+export const CONTEXT_FIND_WIDGET_VISIBLE = new RawContextKey<boolean>('findWidgetVisible', false);
+export const CONTEXT_FIND_WIDGET_NOT_VISIBLE: ContextKeyExpr = CONTEXT_FIND_WIDGET_VISIBLE.toNegated();
+export const CONTEXT_FIND_INPUT_FOCUSSED = new RawContextKey<boolean>('findInputFocussed', false);
 
 export class CommonFindController extends Disposable implements editorCommon.IEditorContribution {
 
-	static ID = 'editor.contrib.findController';
+	private static ID = 'editor.contrib.findController';
 
 	private _editor: editorCommon.ICommonCodeEditor;
-	private _findWidgetVisible: IKeybindingContextKey<boolean>;
+	private _findWidgetVisible: IContextKey<boolean>;
 	protected _state: FindReplaceState;
+	private _currentHistoryNavigator: HistoryNavigator<string>;
+	private _updateHistoryDelayer: Delayer<void>;
 	private _model: FindModelBoundToEditorModel;
 
-	static getFindController(editor:editorCommon.ICommonCodeEditor): CommonFindController {
-		return <CommonFindController>editor.getContribution(CommonFindController.ID);
+	public static get(editor: editorCommon.ICommonCodeEditor): CommonFindController {
+		return editor.getContribution<CommonFindController>(CommonFindController.ID);
 	}
 
-	constructor(editor:editorCommon.ICommonCodeEditor, @IKeybindingService keybindingService: IKeybindingService) {
+	constructor(editor: editorCommon.ICommonCodeEditor, @IContextKeyService contextKeyService: IContextKeyService) {
 		super();
 		this._editor = editor;
-		this._findWidgetVisible = keybindingService.createKey(CONTEXT_FIND_WIDGET_VISIBLE, false);
+		this._findWidgetVisible = CONTEXT_FIND_WIDGET_VISIBLE.bindTo(contextKeyService);
 
+		this._updateHistoryDelayer = new Delayer<void>(500);
+		this._currentHistoryNavigator = new HistoryNavigator<string>();
 		this._state = this._register(new FindReplaceState());
 		this._register(this._state.addChangeListener((e) => this._onStateChanged(e)));
 
 		this._model = null;
 
-		this._register(this._editor.addListener2(editorCommon.EventType.ModelChanged, () => {
+		this._register(this._editor.onDidChangeModel(() => {
 			let shouldRestartFind = (this._editor.getModel() && this._state.isRevealed);
 
 			this.disposeModel();
+
+			this._state.change({
+				searchScope: null
+			}, false);
 
 			if (shouldRestartFind) {
 				this._start({
 					forceRevealReplace: false,
 					seedSearchStringFromSelection: false,
-					seedSearchScopeFromSelection: false,
 					shouldFocus: FindStartFocusAction.NoFocusChange,
-					shouldAnimate: false
+					shouldAnimate: false,
 				});
 			}
 		}));
@@ -92,7 +101,10 @@ export class CommonFindController extends Disposable implements editorCommon.IEd
 		return CommonFindController.ID;
 	}
 
-	private _onStateChanged(e:FindReplaceStateChangedEvent): void {
+	private _onStateChanged(e: FindReplaceStateChangedEvent): void {
+		if (e.updateHistory && e.searchString) {
+			this._delayedUpdateHistory();
+		}
 		if (e.isRevealed) {
 			if (this._state.isRevealed) {
 				this._findWidgetVisible.set(true);
@@ -103,12 +115,29 @@ export class CommonFindController extends Disposable implements editorCommon.IEd
 		}
 	}
 
+	protected _delayedUpdateHistory() {
+		this._updateHistoryDelayer.trigger(this._updateHistory.bind(this));
+	}
+
+	protected _updateHistory() {
+		if (this._state.searchString) {
+			this._currentHistoryNavigator.add(this._state.searchString);
+		}
+	}
+
 	public getState(): FindReplaceState {
 		return this._state;
 	}
 
+	public getHistory(): HistoryNavigator<string> {
+		return this._currentHistoryNavigator;
+	}
+
 	public closeFindWidget(): void {
-		this._state.change({ isRevealed: false }, false);
+		this._state.change({
+			isRevealed: false,
+			searchScope: null
+		}, false);
 		this._editor.focus();
 	}
 
@@ -124,7 +153,7 @@ export class CommonFindController extends Disposable implements editorCommon.IEd
 		this._state.change({ isRegex: !this._state.isRegex }, false);
 	}
 
-	public setSearchString(searchString:string): void {
+	public setSearchString(searchString: string): void {
 		this._state.change({ searchString: searchString }, false);
 	}
 
@@ -145,7 +174,7 @@ export class CommonFindController extends Disposable implements editorCommon.IEd
 		return null;
 	}
 
-	protected _start(opts:IFindStartOptions): void {
+	protected _start(opts: IFindStartOptions): void {
 		this.disposeModel();
 
 		if (!this._editor.getModel()) {
@@ -161,16 +190,12 @@ export class CommonFindController extends Disposable implements editorCommon.IEd
 		if (opts.seedSearchStringFromSelection) {
 			let selectionSearchString = this.getSelectionSearchString();
 			if (selectionSearchString) {
-				stateChanges.searchString = selectionSearchString;
+				if (this._state.isRegex) {
+					stateChanges.searchString = strings.escapeRegExpCharacters(selectionSearchString);
+				} else {
+					stateChanges.searchString = selectionSearchString;
+				}
 			}
-		}
-
-		let selection = this._editor.getSelection();
-
-		stateChanges.searchScope = null;
-		if (opts.seedSearchScopeFromSelection && selection.startLineNumber < selection.endLineNumber) {
-			// Take search scope into account only if it is more than one line.
-			stateChanges.searchScope = selection;
 		}
 
 		// Overwrite isReplaceRevealed
@@ -185,7 +210,7 @@ export class CommonFindController extends Disposable implements editorCommon.IEd
 		}
 	}
 
-	public start(opts:IFindStartOptions): void {
+	public start(opts: IFindStartOptions): void {
 		this._start(opts);
 	}
 
@@ -220,69 +245,133 @@ export class CommonFindController extends Disposable implements editorCommon.IEd
 		}
 		return false;
 	}
-}
 
-export class StartFindAction extends EditorAction {
-
-	constructor(descriptor: editorCommon.IEditorActionDescriptorData, editor: editorCommon.ICommonCodeEditor) {
-		super(descriptor, editor, Behaviour.WidgetFocus);
+	public selectAllMatches(): boolean {
+		if (this._model) {
+			this._model.selectAllMatches();
+			this._editor.focus();
+			return true;
+		}
+		return false;
 	}
 
-	public run(): TPromise<boolean> {
-		let controller = CommonFindController.getFindController(this.editor);
-		controller.start({
-			forceRevealReplace: false,
-			seedSearchStringFromSelection: true,
-			seedSearchScopeFromSelection: true,
-			shouldFocus: FindStartFocusAction.FocusFindInput,
-			shouldAnimate: true
+	public showPreviousFindTerm(): boolean {
+		let previousTerm = this._currentHistoryNavigator.previous();
+		if (previousTerm) {
+			this._state.change({ searchString: previousTerm }, false, false);
+		}
+		return true;
+	}
+
+	public showNextFindTerm(): boolean {
+		let nextTerm = this._currentHistoryNavigator.next();
+		if (nextTerm) {
+			this._state.change({ searchString: nextTerm }, false, false);
+		}
+		return true;
+	}
+}
+
+@editorAction
+export class StartFindAction extends EditorAction {
+
+	constructor() {
+		super({
+			id: FIND_IDS.StartFindAction,
+			label: nls.localize('startFindAction', "Find"),
+			alias: 'Find',
+			precondition: null,
+			kbOpts: {
+				kbExpr: null,
+				primary: KeyMod.CtrlCmd | KeyCode.KEY_F,
+				mac: {
+					primary: KeyMod.CtrlCmd | KeyCode.KEY_F,
+					secondary: [KeyMod.CtrlCmd | KeyCode.KEY_E]
+				}
+			}
 		});
-		return TPromise.as(true);
+	}
+
+	public run(accessor: ServicesAccessor, editor: editorCommon.ICommonCodeEditor): void {
+		let controller = CommonFindController.get(editor);
+		if (controller) {
+			controller.start({
+				forceRevealReplace: false,
+				seedSearchStringFromSelection: true,
+				shouldFocus: FindStartFocusAction.FocusFindInput,
+				shouldAnimate: true
+			});
+		}
 	}
 }
 
 export abstract class MatchFindAction extends EditorAction {
-	constructor(descriptor:editorCommon.IEditorActionDescriptorData, editor:editorCommon.ICommonCodeEditor) {
-		super(descriptor, editor, Behaviour.WidgetFocus);
-	}
-
-	public run(): TPromise<boolean> {
-		let controller = CommonFindController.getFindController(this.editor);
-		if (!this._run(controller)) {
+	public run(accessor: ServicesAccessor, editor: editorCommon.ICommonCodeEditor): void {
+		let controller = CommonFindController.get(editor);
+		if (controller && !this._run(controller)) {
 			controller.start({
 				forceRevealReplace: false,
 				seedSearchStringFromSelection: (controller.getState().searchString.length === 0),
-				seedSearchScopeFromSelection: false,
 				shouldFocus: FindStartFocusAction.NoFocusChange,
 				shouldAnimate: true
 			});
 			this._run(controller);
 		}
-		return TPromise.as(true);
 	}
 
-	protected abstract _run(controller:CommonFindController): boolean;
+	protected abstract _run(controller: CommonFindController): boolean;
 }
 
+@editorAction
 export class NextMatchFindAction extends MatchFindAction {
-	protected _run(controller:CommonFindController): boolean {
+
+	constructor() {
+		super({
+			id: FIND_IDS.NextMatchFindAction,
+			label: nls.localize('findNextMatchAction', "Find Next"),
+			alias: 'Find Next',
+			precondition: null,
+			kbOpts: {
+				kbExpr: EditorContextKeys.Focus,
+				primary: KeyCode.F3,
+				mac: { primary: KeyMod.CtrlCmd | KeyCode.KEY_G, secondary: [KeyCode.F3] }
+			}
+		});
+	}
+
+	protected _run(controller: CommonFindController): boolean {
 		return controller.moveToNextMatch();
 	}
 }
 
+@editorAction
 export class PreviousMatchFindAction extends MatchFindAction {
-	protected _run(controller:CommonFindController): boolean {
+
+	constructor() {
+		super({
+			id: FIND_IDS.PreviousMatchFindAction,
+			label: nls.localize('findPreviousMatchAction', "Find Previous"),
+			alias: 'Find Previous',
+			precondition: null,
+			kbOpts: {
+				kbExpr: EditorContextKeys.Focus,
+				primary: KeyMod.Shift | KeyCode.F3,
+				mac: { primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_G, secondary: [KeyMod.Shift | KeyCode.F3] }
+			}
+		});
+	}
+
+	protected _run(controller: CommonFindController): boolean {
 		return controller.moveToPrevMatch();
 	}
 }
 
 export abstract class SelectionMatchFindAction extends EditorAction {
-	constructor(descriptor:editorCommon.IEditorActionDescriptorData, editor:editorCommon.ICommonCodeEditor) {
-		super(descriptor, editor, Behaviour.WidgetFocus);
-	}
-
-	public run(): TPromise<boolean> {
-		let controller = CommonFindController.getFindController(this.editor);
+	public run(accessor: ServicesAccessor, editor: editorCommon.ICommonCodeEditor): void {
+		let controller = CommonFindController.get(editor);
+		if (!controller) {
+			return;
+		}
 		let selectionSearchString = controller.getSelectionSearchString();
 		if (selectionSearchString) {
 			controller.setSearchString(selectionSearchString);
@@ -291,62 +380,108 @@ export abstract class SelectionMatchFindAction extends EditorAction {
 			controller.start({
 				forceRevealReplace: false,
 				seedSearchStringFromSelection: false,
-				seedSearchScopeFromSelection: false,
 				shouldFocus: FindStartFocusAction.NoFocusChange,
 				shouldAnimate: true
 			});
 			this._run(controller);
 		}
-		return TPromise.as(true);
 	}
 
-	protected abstract _run(controller:CommonFindController): boolean;
+	protected abstract _run(controller: CommonFindController): boolean;
 }
 
+@editorAction
 export class NextSelectionMatchFindAction extends SelectionMatchFindAction {
-	protected _run(controller:CommonFindController): boolean {
+
+	constructor() {
+		super({
+			id: FIND_IDS.NextSelectionMatchFindAction,
+			label: nls.localize('nextSelectionMatchFindAction', "Find Next Selection"),
+			alias: 'Find Next Selection',
+			precondition: null,
+			kbOpts: {
+				kbExpr: EditorContextKeys.Focus,
+				primary: KeyMod.CtrlCmd | KeyCode.F3
+			}
+		});
+	}
+
+	protected _run(controller: CommonFindController): boolean {
 		return controller.moveToNextMatch();
 	}
 }
 
+@editorAction
 export class PreviousSelectionMatchFindAction extends SelectionMatchFindAction {
-	protected _run(controller:CommonFindController): boolean {
+
+	constructor() {
+		super({
+			id: FIND_IDS.PreviousSelectionMatchFindAction,
+			label: nls.localize('previousSelectionMatchFindAction', "Find Previous Selection"),
+			alias: 'Find Previous Selection',
+			precondition: null,
+			kbOpts: {
+				kbExpr: EditorContextKeys.Focus,
+				primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.F3
+			}
+		});
+	}
+
+	protected _run(controller: CommonFindController): boolean {
 		return controller.moveToPrevMatch();
 	}
 }
 
+@editorAction
 export class StartFindReplaceAction extends EditorAction {
 
-	constructor(descriptor:editorCommon.IEditorActionDescriptorData, editor:editorCommon.ICommonCodeEditor) {
-		super(descriptor, editor, Behaviour.WidgetFocus | Behaviour.Writeable);
+	constructor() {
+		super({
+			id: FIND_IDS.StartFindReplaceAction,
+			label: nls.localize('startReplace', "Replace"),
+			alias: 'Replace',
+			precondition: null,
+			kbOpts: {
+				kbExpr: null,
+				primary: KeyMod.CtrlCmd | KeyCode.KEY_H,
+				mac: { primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.KEY_F }
+			}
+		});
 	}
 
-	public run(): TPromise<boolean> {
-		let controller = CommonFindController.getFindController(this.editor);
-		controller.start({
-			forceRevealReplace: true,
-			seedSearchStringFromSelection: true,
-			seedSearchScopeFromSelection: true,
-			shouldFocus: FindStartFocusAction.FocusReplaceInput,
-			shouldAnimate: true
-		});
-		return TPromise.as(true);
+	public run(accessor: ServicesAccessor, editor: editorCommon.ICommonCodeEditor): void {
+		if (editor.getConfiguration().readOnly) {
+			return;
+		}
+
+		let controller = CommonFindController.get(editor);
+		if (controller) {
+			controller.start({
+				forceRevealReplace: true,
+				seedSearchStringFromSelection: true,
+				shouldFocus: FindStartFocusAction.FocusReplaceInput,
+				shouldAnimate: true
+			});
+		}
 	}
 }
 
 export interface IMultiCursorFindResult {
-	searchText:string;
-	matchCase:boolean;
-	wholeWord:boolean;
+	searchText: string;
+	matchCase: boolean;
+	wholeWord: boolean;
 
-	nextMatch: editorCommon.IEditorSelection;
+	currentMatch: Selection;
 }
 
-function multiCursorFind(editor:editorCommon.ICommonCodeEditor, changeFindSearchString:boolean): IMultiCursorFindResult {
-	let controller = CommonFindController.getFindController(editor);
+function multiCursorFind(editor: editorCommon.ICommonCodeEditor, changeFindSearchString: boolean): IMultiCursorFindResult {
+	let controller = CommonFindController.get(editor);
+	if (!controller) {
+		return null;
+	}
 	let state = controller.getState();
-	let searchText: string,
-		nextMatch: editorCommon.IEditorSelection;
+	let searchText: string;
+	let currentMatch: Selection;
 
 	// In any case, if the find widget was ever opened, the options are taken from it
 	let wholeWord = state.wholeWord;
@@ -375,7 +510,7 @@ function multiCursorFind(editor:editorCommon.ICommonCodeEditor, changeFindSearch
 				return null;
 			}
 			searchText = word.word;
-			nextMatch = Selection.createSelection(s.startLineNumber, word.startColumn, s.startLineNumber, word.endColumn);
+			currentMatch = new Selection(s.startLineNumber, word.startColumn, s.startLineNumber, word.endColumn);
 		} else {
 			searchText = editor.getModel().getValueInRange(s);
 		}
@@ -388,130 +523,245 @@ function multiCursorFind(editor:editorCommon.ICommonCodeEditor, changeFindSearch
 		searchText: searchText,
 		matchCase: matchCase,
 		wholeWord: wholeWord,
-		nextMatch: nextMatch
+		currentMatch: currentMatch
 	};
 }
 
-export class SelectNextFindMatchAction extends EditorAction {
-	constructor(descriptor:editorCommon.IEditorActionDescriptorData, editor:editorCommon.ICommonCodeEditor) {
-		super(descriptor, editor, Behaviour.WidgetFocus);
-	}
-
-	protected _getNextMatch(): editorCommon.IEditorSelection {
-		let r = multiCursorFind(this.editor, true);
+export abstract class SelectNextFindMatchAction extends EditorAction {
+	protected _getNextMatch(editor: editorCommon.ICommonCodeEditor): Selection {
+		let r = multiCursorFind(editor, true);
 		if (!r) {
 			return null;
 		}
-		if (r.nextMatch) {
-			return r.nextMatch;
+		if (r.currentMatch) {
+			return r.currentMatch;
 		}
 
-		let allSelections = this.editor.getSelections();
+		let allSelections = editor.getSelections();
 		let lastAddedSelection = allSelections[allSelections.length - 1];
 
-		let nextMatch = this.editor.getModel().findNextMatch(r.searchText, lastAddedSelection.getEndPosition(), false, r.matchCase, r.wholeWord);
+		let nextMatch = editor.getModel().findNextMatch(r.searchText, lastAddedSelection.getEndPosition(), false, r.matchCase, r.wholeWord);
 
 		if (!nextMatch) {
 			return null;
 		}
 
-		return Selection.createSelection(nextMatch.startLineNumber, nextMatch.startColumn, nextMatch.endLineNumber, nextMatch.endColumn);
+		return new Selection(nextMatch.startLineNumber, nextMatch.startColumn, nextMatch.endLineNumber, nextMatch.endColumn);
 	}
 }
 
-export class AddSelectionToNextFindMatchAction extends SelectNextFindMatchAction {
-	static ID = FIND_IDS.AddSelectionToNextFindMatchAction;
-
-	constructor(descriptor:editorCommon.IEditorActionDescriptorData, editor:editorCommon.ICommonCodeEditor) {
-		super(descriptor, editor);
-	}
-
-	public run(): TPromise<boolean> {
-		let nextMatch = this._getNextMatch();
-
-		if (!nextMatch) {
-			return TPromise.as(false);
-		}
-
-		let allSelections = this.editor.getSelections();
-		this.editor.setSelections(allSelections.concat(nextMatch));
-		this.editor.revealRangeInCenterIfOutsideViewport(nextMatch);
-
-		return TPromise.as(true);
-	}
-}
-
-export class MoveSelectionToNextFindMatchAction extends SelectNextFindMatchAction {
-	static ID = FIND_IDS.MoveSelectionToNextFindMatchAction;
-
-	constructor(descriptor:editorCommon.IEditorActionDescriptorData, editor:editorCommon.ICommonCodeEditor) {
-		super(descriptor, editor);
-	}
-
-	public run(): TPromise<boolean> {
-		let nextMatch = this._getNextMatch();
-
-		if (!nextMatch) {
-			return TPromise.as(false);
-		}
-
-		let allSelections = this.editor.getSelections();
-		this.editor.setSelections(allSelections.slice(0, allSelections.length - 1).concat(nextMatch));
-		this.editor.revealRangeInCenterIfOutsideViewport(nextMatch);
-
-		return TPromise.as(true);
-	}
-}
-
-export class SelectHighlightsAction extends EditorAction {
-	static ID = 'editor.action.selectHighlights';
-	static COMPAT_ID = 'editor.action.changeAll';
-
-	constructor(descriptor:editorCommon.IEditorActionDescriptorData, editor:editorCommon.ICommonCodeEditor) {
-		let behaviour = Behaviour.WidgetFocus | Behaviour.Writeable;
-		if (descriptor.id === SelectHighlightsAction.COMPAT_ID) {
-			behaviour |= Behaviour.ShowInContextMenu;
-		}
-		super(descriptor, editor, behaviour);
-	}
-
-	public getGroupId(): string {
-		return '2_change/1_changeAll';
-	}
-
-	public run(): TPromise<boolean> {
-		let r = multiCursorFind(this.editor, true);
+export abstract class SelectPreviousFindMatchAction extends EditorAction {
+	protected _getPreviousMatch(editor: editorCommon.ICommonCodeEditor): Selection {
+		let r = multiCursorFind(editor, true);
 		if (!r) {
-			return TPromise.as(false);
+			return null;
+		}
+		if (r.currentMatch) {
+			return r.currentMatch;
 		}
 
-		let matches = this.editor.getModel().findMatches(r.searchText, true, false, r.matchCase, r.wholeWord);
+		let allSelections = editor.getSelections();
+		let lastAddedSelection = allSelections[allSelections.length - 1];
+
+		let previousMatch = editor.getModel().findPreviousMatch(r.searchText, lastAddedSelection.getStartPosition(), false, r.matchCase, r.wholeWord);
+
+		if (!previousMatch) {
+			return null;
+		}
+
+		return new Selection(previousMatch.startLineNumber, previousMatch.startColumn, previousMatch.endLineNumber, previousMatch.endColumn);
+	}
+}
+
+@editorAction
+export class AddSelectionToNextFindMatchAction extends SelectNextFindMatchAction {
+
+	constructor() {
+		super({
+			id: FIND_IDS.AddSelectionToNextFindMatchAction,
+			label: nls.localize('addSelectionToNextFindMatch', "Add Selection To Next Find Match"),
+			alias: 'Add Selection To Next Find Match',
+			precondition: null,
+			kbOpts: {
+				kbExpr: EditorContextKeys.Focus,
+				primary: KeyMod.CtrlCmd | KeyCode.KEY_D
+			}
+		});
+	}
+
+	public run(accessor: ServicesAccessor, editor: editorCommon.ICommonCodeEditor): void {
+		let nextMatch = this._getNextMatch(editor);
+
+		if (!nextMatch) {
+			return;
+		}
+
+		let allSelections = editor.getSelections();
+		editor.setSelections(allSelections.concat(nextMatch));
+		editor.revealRangeInCenterIfOutsideViewport(nextMatch);
+	}
+}
+
+@editorAction
+export class AddSelectionToPreviousFindMatchAction extends SelectPreviousFindMatchAction {
+
+	constructor() {
+		super({
+			id: FIND_IDS.AddSelectionToPreviousFindMatchAction,
+			label: nls.localize('addSelectionToPreviousFindMatch', "Add Selection To Previous Find Match"),
+			alias: 'Add Selection To Previous Find Match',
+			precondition: null
+		});
+	}
+
+	public run(accessor: ServicesAccessor, editor: editorCommon.ICommonCodeEditor): void {
+		let previousMatch = this._getPreviousMatch(editor);
+
+		if (!previousMatch) {
+			return;
+		}
+
+		let allSelections = editor.getSelections();
+		editor.setSelections(allSelections.concat(previousMatch));
+		editor.revealRangeInCenterIfOutsideViewport(previousMatch);
+	}
+}
+
+@editorAction
+export class MoveSelectionToNextFindMatchAction extends SelectNextFindMatchAction {
+
+	constructor() {
+		super({
+			id: FIND_IDS.MoveSelectionToNextFindMatchAction,
+			label: nls.localize('moveSelectionToNextFindMatch', "Move Last Selection To Next Find Match"),
+			alias: 'Move Last Selection To Next Find Match',
+			precondition: null,
+			kbOpts: {
+				kbExpr: EditorContextKeys.Focus,
+				primary: KeyChord(KeyMod.CtrlCmd | KeyCode.KEY_K, KeyMod.CtrlCmd | KeyCode.KEY_D)
+			}
+		});
+	}
+
+	public run(accessor: ServicesAccessor, editor: editorCommon.ICommonCodeEditor): void {
+		let nextMatch = this._getNextMatch(editor);
+
+		if (!nextMatch) {
+			return;
+		}
+
+		let allSelections = editor.getSelections();
+		editor.setSelections(allSelections.slice(0, allSelections.length - 1).concat(nextMatch));
+		editor.revealRangeInCenterIfOutsideViewport(nextMatch);
+	}
+}
+
+@editorAction
+export class MoveSelectionToPreviousFindMatchAction extends SelectPreviousFindMatchAction {
+
+	constructor() {
+		super({
+			id: FIND_IDS.MoveSelectionToPreviousFindMatchAction,
+			label: nls.localize('moveSelectionToPreviousFindMatch', "Move Last Selection To Previous Find Match"),
+			alias: 'Move Last Selection To Previous Find Match',
+			precondition: null
+		});
+	}
+
+	public run(accessor: ServicesAccessor, editor: editorCommon.ICommonCodeEditor): void {
+		let previousMatch = this._getPreviousMatch(editor);
+
+		if (!previousMatch) {
+			return;
+		}
+
+		let allSelections = editor.getSelections();
+		editor.setSelections(allSelections.slice(0, allSelections.length - 1).concat(previousMatch));
+		editor.revealRangeInCenterIfOutsideViewport(previousMatch);
+	}
+}
+
+export abstract class AbstractSelectHighlightsAction extends EditorAction {
+	public run(accessor: ServicesAccessor, editor: editorCommon.ICommonCodeEditor): void {
+		let r = multiCursorFind(editor, true);
+		if (!r) {
+			return;
+		}
+
+		let matches = editor.getModel().findMatches(r.searchText, true, false, r.matchCase, r.wholeWord);
 
 		if (matches.length > 0) {
-			this.editor.setSelections(matches.map(m => Selection.createSelection(m.startLineNumber, m.startColumn, m.endLineNumber, m.endColumn)));
+			let editorSelection = editor.getSelection();
+			for (let i = 0, len = matches.length; i < len; i++) {
+				let match = matches[i];
+				let intersection = match.intersectRanges(editorSelection);
+				if (intersection) {
+					// bingo!
+					matches.splice(i, 1);
+					matches.unshift(match);
+					break;
+				}
+			}
+			editor.setSelections(matches.map(m => new Selection(m.startLineNumber, m.startColumn, m.endLineNumber, m.endColumn)));
 		}
-		return TPromise.as(true);
 	}
 }
 
+@editorAction
+export class SelectHighlightsAction extends AbstractSelectHighlightsAction {
+	constructor() {
+		super({
+			id: 'editor.action.selectHighlights',
+			label: nls.localize('selectAllOccurencesOfFindMatch', "Select All Occurences of Find Match"),
+			alias: 'Select All Occurences of Find Match',
+			precondition: null,
+			kbOpts: {
+				kbExpr: EditorContextKeys.Focus,
+				primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_L
+			}
+		});
+	}
+}
+
+@editorAction
+export class CompatChangeAll extends AbstractSelectHighlightsAction {
+	constructor() {
+		super({
+			id: 'editor.action.changeAll',
+			label: nls.localize('changeAll.label', "Change All Occurrences"),
+			alias: 'Change All Occurrences',
+			precondition: EditorContextKeys.Writable,
+			kbOpts: {
+				kbExpr: EditorContextKeys.TextFocus,
+				primary: KeyMod.CtrlCmd | KeyCode.F2
+			},
+			menuOpts: {
+				group: '1_modification',
+				order: 1.2
+			}
+		});
+	}
+}
+
+@commonEditorContribution
 export class SelectionHighlighter extends Disposable implements editorCommon.IEditorContribution {
-	static ID = 'editor.contrib.selectionHighlighter';
+	private static ID = 'editor.contrib.selectionHighlighter';
 
 	private editor: editorCommon.ICommonCodeEditor;
 	private decorations: string[];
 	private updateSoon: RunOnceScheduler;
-	private lastWordUnderCursor: editorCommon.IEditorRange;
+	private lastWordUnderCursor: Range;
 
-	constructor(editor:editorCommon.ICommonCodeEditor) {
+	constructor(editor: editorCommon.ICommonCodeEditor) {
 		super();
 		this.editor = editor;
 		this.decorations = [];
 		this.updateSoon = this._register(new RunOnceScheduler(() => this._update(), 300));
 		this.lastWordUnderCursor = null;
 
-		this._register(editor.addListener2(editorCommon.EventType.CursorSelectionChanged, (e: editorCommon.ICursorSelectionChangedEvent) => {
+		this._register(editor.onDidChangeCursorSelection((e: editorCommon.ICursorSelectionChangedEvent) => {
 			if (e.selection.isEmpty()) {
-				if (e.reason === 'explicit') {
+				if (e.reason === editorCommon.CursorChangeReason.Explicit) {
 					if (!this.lastWordUnderCursor || !this.lastWordUnderCursor.containsPosition(e.selection.getStartPosition())) {
 						// no longer valid
 						this.removeDecorations();
@@ -525,10 +775,10 @@ export class SelectionHighlighter extends Disposable implements editorCommon.IEd
 				this._update();
 			}
 		}));
-		this._register(editor.addListener2(editorCommon.EventType.ModelChanged, (e) => {
+		this._register(editor.onDidChangeModel((e) => {
 			this.removeDecorations();
 		}));
-		this._register(CommonFindController.getFindController(editor).getState().addChangeListener((e) => {
+		this._register(CommonFindController.get(editor).getState().addChangeListener((e) => {
 			this._update();
 		}));
 	}
@@ -545,8 +795,13 @@ export class SelectionHighlighter extends Disposable implements editorCommon.IEd
 	}
 
 	private _update(): void {
+		let model = this.editor.getModel();
+		if (!model) {
+			return;
+		}
+
 		this.lastWordUnderCursor = null;
-		if (!this.editor.getConfiguration().selectionHighlight) {
+		if (!this.editor.getConfiguration().contribInfo.selectionHighlight) {
 			return;
 		}
 
@@ -556,9 +811,8 @@ export class SelectionHighlighter extends Disposable implements editorCommon.IEd
 			return;
 		}
 
-		let model = this.editor.getModel();
-		let hasFindOccurences = OccurrencesRegistry.has(model);
-		if (r.nextMatch) {
+		let hasFindOccurences = DocumentHighlightProviderRegistry.has(model);
+		if (r.currentMatch) {
 			// This is an empty selection
 			if (hasFindOccurences) {
 				// Do not interfere with semantic word highlighting in the no selection case
@@ -566,7 +820,7 @@ export class SelectionHighlighter extends Disposable implements editorCommon.IEd
 				return;
 			}
 
-			this.lastWordUnderCursor = r.nextMatch;
+			this.lastWordUnderCursor = r.currentMatch;
 		}
 		if (/^[ \t]+$/.test(r.searchText)) {
 			// whitespace only selection
@@ -596,8 +850,8 @@ export class SelectionHighlighter extends Disposable implements editorCommon.IEd
 		selections.sort(Range.compareRangesUsingStarts);
 
 		// do not overlap with selection (issue #64 and #512)
-		let matches: editorCommon.IEditorRange[] = [];
-		for (let i = 0, j = 0, len = allMatches.length, lenJ = selections.length; i < len; ) {
+		let matches: Range[] = [];
+		for (let i = 0, j = 0, len = allMatches.length, lenJ = selections.length; i < len;) {
 			let match = allMatches[i];
 
 			if (j >= lenJ) {
@@ -646,79 +900,119 @@ export class SelectionHighlighter extends Disposable implements editorCommon.IEd
 	}
 }
 
+const FindCommand = EditorCommand.bindToContribution<CommonFindController>(CommonFindController.get);
 
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(SelectHighlightsAction, SelectHighlightsAction.ID, nls.localize('selectAllOccurencesOfFindMatch', "Select All Occurences of Find Match"), {
-	context: ContextKey.EditorFocus,
-	primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_L
-}, 'Select All Occurences of Find Match'));
-// register SelectHighlightsAction again to replace the now removed Change All action
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(SelectHighlightsAction, SelectHighlightsAction.COMPAT_ID, nls.localize('changeAll.label', "Change All Occurrences"), {
-	context: ContextKey.EditorTextFocus,
-	primary: KeyMod.CtrlCmd | KeyCode.F2
-}, 'Change All Occurrences'));
+CommonEditorRegistry.registerEditorCommand(new FindCommand({
+	id: FIND_IDS.CloseFindWidgetCommand,
+	precondition: CONTEXT_FIND_WIDGET_VISIBLE,
+	handler: x => x.closeFindWidget(),
+	kbOpts: {
+		weight: CommonEditorRegistry.commandWeight(5),
+		kbExpr: EditorContextKeys.Focus,
+		primary: KeyCode.Escape,
+		secondary: [KeyMod.Shift | KeyCode.Escape]
+	}
+}));
 
-// register actions
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(StartFindAction, FIND_IDS.StartFindAction, nls.localize('startFindAction',"Find"), {
-	context: ContextKey.None,
-	primary: KeyMod.CtrlCmd | KeyCode.KEY_F
-}, 'Find'));
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(NextMatchFindAction, FIND_IDS.NextMatchFindAction, nls.localize('findNextMatchAction', "Find Next"), {
-	context: ContextKey.EditorFocus,
-	primary: KeyCode.F3,
-	mac: { primary: KeyMod.CtrlCmd | KeyCode.KEY_G, secondary: [KeyCode.F3] }
-}, 'Find Next'));
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(PreviousMatchFindAction, FIND_IDS.PreviousMatchFindAction, nls.localize('findPreviousMatchAction', "Find Previous"), {
-	context: ContextKey.EditorFocus,
-	primary: KeyMod.Shift | KeyCode.F3,
-	mac: { primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_G, secondary: [KeyMod.Shift | KeyCode.F3] }
-}, 'Find Previous'));
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(NextSelectionMatchFindAction, FIND_IDS.NextSelectionMatchFindAction, nls.localize('nextSelectionMatchFindAction', "Find Next Selection"), {
-	context: ContextKey.EditorFocus,
-	primary: KeyMod.CtrlCmd | KeyCode.F3
-}, 'Find Next Selection'));
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(PreviousSelectionMatchFindAction, FIND_IDS.PreviousSelectionMatchFindAction, nls.localize('previousSelectionMatchFindAction', "Find Previous Selection"), {
-	context: ContextKey.EditorFocus,
-	primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.F3
-}, 'Find Previous Selection'));
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(StartFindReplaceAction, FIND_IDS.StartFindReplaceAction, nls.localize('startReplace', "Replace"), {
-	context: ContextKey.None,
-	primary: KeyMod.CtrlCmd | KeyCode.KEY_H,
-	mac: { primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.KEY_F }
-}, 'Replace'));
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(MoveSelectionToNextFindMatchAction, MoveSelectionToNextFindMatchAction.ID, nls.localize('moveSelectionToNextFindMatch', "Move Last Selection To Next Find Match"), {
-	context: ContextKey.EditorFocus,
-	primary: KeyMod.chord(KeyMod.CtrlCmd | KeyCode.KEY_K, KeyMod.CtrlCmd | KeyCode.KEY_D)
-}, 'Move Last Selection To Next Find Match'));
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(AddSelectionToNextFindMatchAction, AddSelectionToNextFindMatchAction.ID, nls.localize('addSelectionToNextFindMatch', "Add Selection To Next Find Match"), {
-	context: ContextKey.EditorFocus,
-	primary: KeyMod.CtrlCmd | KeyCode.KEY_D
-}, 'Add Selection To Next Find Match'));
+CommonEditorRegistry.registerEditorCommand(new FindCommand({
+	id: FIND_IDS.ToggleCaseSensitiveCommand,
+	precondition: null,
+	handler: x => x.toggleCaseSensitive(),
+	kbOpts: {
+		weight: CommonEditorRegistry.commandWeight(5),
+		kbExpr: EditorContextKeys.Focus,
+		primary: ToggleCaseSensitiveKeybinding.primary,
+		mac: ToggleCaseSensitiveKeybinding.mac,
+		win: ToggleCaseSensitiveKeybinding.win,
+		linux: ToggleCaseSensitiveKeybinding.linux
+	}
+}));
 
-function registerFindCommand(id:string, callback:(controller:CommonFindController)=>void, keybindings:IKeybindings, needsKey:string = null): void {
-	CommonEditorRegistry.registerEditorCommand(id, CommonEditorRegistry.commandWeight(5), keybindings, false, needsKey, (ctx, editor, args) => {
-		callback(CommonFindController.getFindController(editor));
-	});
-}
+CommonEditorRegistry.registerEditorCommand(new FindCommand({
+	id: FIND_IDS.ToggleWholeWordCommand,
+	precondition: null,
+	handler: x => x.toggleWholeWords(),
+	kbOpts: {
+		weight: CommonEditorRegistry.commandWeight(5),
+		kbExpr: EditorContextKeys.Focus,
+		primary: ToggleWholeWordKeybinding.primary,
+		mac: ToggleWholeWordKeybinding.mac,
+		win: ToggleWholeWordKeybinding.win,
+		linux: ToggleWholeWordKeybinding.linux
+	}
+}));
 
-registerFindCommand(FIND_IDS.CloseFindWidgetCommand, x => x.closeFindWidget(), {
-	primary: KeyCode.Escape,
-	secondary: [KeyMod.Shift | KeyCode.Escape]
-}, CONTEXT_FIND_WIDGET_VISIBLE);
-registerFindCommand(FIND_IDS.ToggleCaseSensitiveCommand, x => x.toggleCaseSensitive(), {
-	primary: KeyMod.Alt | KeyCode.KEY_C,
-	mac: { primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.KEY_C }
-});
-registerFindCommand(FIND_IDS.ToggleWholeWordCommand, x => x.toggleWholeWords(), {
-	primary: KeyMod.Alt | KeyCode.KEY_W,
-	mac: { primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.KEY_W }
-});
-registerFindCommand(FIND_IDS.ToggleRegexCommand, x => x.toggleRegex(), {
-	primary: KeyMod.Alt | KeyCode.KEY_R,
-	mac: { primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.KEY_R }
-});
-registerFindCommand(FIND_IDS.ReplaceOneAction, x => x.replace(), {
-	primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_1
-});
-registerFindCommand(FIND_IDS.ReplaceAllAction, x => x.replaceAll(), {
-	primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.Enter
-});
+CommonEditorRegistry.registerEditorCommand(new FindCommand({
+	id: FIND_IDS.ToggleRegexCommand,
+	precondition: null,
+	handler: x => x.toggleRegex(),
+	kbOpts: {
+		weight: CommonEditorRegistry.commandWeight(5),
+		kbExpr: EditorContextKeys.Focus,
+		primary: ToggleRegexKeybinding.primary,
+		mac: ToggleRegexKeybinding.mac,
+		win: ToggleRegexKeybinding.win,
+		linux: ToggleRegexKeybinding.linux
+	}
+}));
+
+CommonEditorRegistry.registerEditorCommand(new FindCommand({
+	id: FIND_IDS.ReplaceOneAction,
+	precondition: CONTEXT_FIND_WIDGET_VISIBLE,
+	handler: x => x.replace(),
+	kbOpts: {
+		weight: CommonEditorRegistry.commandWeight(5),
+		kbExpr: EditorContextKeys.Focus,
+		primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_1
+	}
+}));
+
+CommonEditorRegistry.registerEditorCommand(new FindCommand({
+	id: FIND_IDS.ReplaceAllAction,
+	precondition: CONTEXT_FIND_WIDGET_VISIBLE,
+	handler: x => x.replaceAll(),
+	kbOpts: {
+		weight: CommonEditorRegistry.commandWeight(5),
+		kbExpr: EditorContextKeys.Focus,
+		primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.Enter
+	}
+}));
+
+CommonEditorRegistry.registerEditorCommand(new FindCommand({
+	id: FIND_IDS.SelectAllMatchesAction,
+	precondition: CONTEXT_FIND_WIDGET_VISIBLE,
+	handler: x => x.selectAllMatches(),
+	kbOpts: {
+		weight: CommonEditorRegistry.commandWeight(5),
+		kbExpr: EditorContextKeys.Focus,
+		primary: KeyMod.Alt | KeyCode.Enter
+	}
+}));
+
+CommonEditorRegistry.registerEditorCommand(new FindCommand({
+	id: FIND_IDS.ShowPreviousFindTermAction,
+	precondition: CONTEXT_FIND_WIDGET_VISIBLE,
+	handler: x => x.showPreviousFindTerm(),
+	kbOpts: {
+		weight: CommonEditorRegistry.commandWeight(5),
+		kbExpr: ContextKeyExpr.and(CONTEXT_FIND_INPUT_FOCUSSED, EditorContextKeys.Focus),
+		primary: ShowPreviousFindTermKeybinding.primary,
+		mac: ShowPreviousFindTermKeybinding.mac,
+		win: ShowPreviousFindTermKeybinding.win,
+		linux: ShowPreviousFindTermKeybinding.linux
+	}
+}));
+
+CommonEditorRegistry.registerEditorCommand(new FindCommand({
+	id: FIND_IDS.ShowNextFindTermAction,
+	precondition: CONTEXT_FIND_WIDGET_VISIBLE,
+	handler: x => x.showNextFindTerm(),
+	kbOpts: {
+		weight: CommonEditorRegistry.commandWeight(5),
+		kbExpr: ContextKeyExpr.and(CONTEXT_FIND_INPUT_FOCUSSED, EditorContextKeys.Focus),
+		primary: ShowNextFindTermKeybinding.primary,
+		mac: ShowNextFindTermKeybinding.mac,
+		win: ShowNextFindTermKeybinding.win,
+		linux: ShowNextFindTermKeybinding.linux
+	}
+}));

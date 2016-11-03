@@ -4,11 +4,17 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {TPromise} from 'vs/base/common/winjs.base';
+import { TPromise } from 'vs/base/common/winjs.base';
+import uri from 'vs/base/common/uri';
 import Event from 'vs/base/common/event';
-import {IQuickNavigateConfiguration, IAutoFocus} from 'vs/base/parts/quickopen/common/quickOpen';
-import {createDecorator, ServiceIdentifier} from 'vs/platform/instantiation/common/instantiation';
-import {IEditorInput} from 'vs/platform/editor/common/editor';
+import { CancellationToken } from 'vs/base/common/cancellation';
+import { IQuickNavigateConfiguration, IAutoFocus, IEntryRunContext } from 'vs/base/parts/quickopen/common/quickOpen';
+import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
+
+export interface IFilePickOpenEntry extends IPickOpenEntry {
+	resource: uri;
+	isFolder?: boolean;
+}
 
 export interface IPickOpenEntry {
 	id?: string;
@@ -16,6 +22,8 @@ export interface IPickOpenEntry {
 	description?: string;
 	detail?: string;
 	separator?: ISeparator;
+	alwaysShow?: boolean;
+	run?: (context: IEntryRunContext) => void;
 }
 
 export interface ISeparator {
@@ -44,6 +52,11 @@ export interface IPickOptions {
 	 * an optional flag to include the detail when filtering the picks
 	 */
 	matchOnDetail?: boolean;
+
+	/**
+	 * an optional flag to not close the picker on focus lost
+	 */
+	ignoreFocusLost?: boolean;
 }
 
 export interface IInputOptions {
@@ -68,16 +81,23 @@ export interface IInputOptions {
 	 */
 	password?: boolean;
 
+	ignoreFocusLost?: boolean;
+
 	/**
 	 * an optional function that is used to validate user input.
 	 */
 	validateInput?: (input: string) => TPromise<string>;
 }
 
-export var IQuickOpenService = createDecorator<IQuickOpenService>('quickOpenService');
+export interface IShowOptions {
+	quickNavigateConfiguration?: IQuickNavigateConfiguration;
+}
+
+export const IQuickOpenService = createDecorator<IQuickOpenService>('quickOpenService');
 
 export interface IQuickOpenService {
-	serviceId : ServiceIdentifier<any>;
+
+	_serviceBrand: any;
 
 	/**
 	 * Asks the container to show the quick open control with the optional prefix set. If the optional parameter
@@ -86,24 +106,7 @@ export interface IQuickOpenService {
 	 *
 	 * The returned promise completes when quick open is closing.
 	 */
-	show(prefix?: string, quickNavigateConfiguration?: IQuickNavigateConfiguration): TPromise<void>;
-
-	/**
-	 * Refreshes the quick open control. No-op, if the control is hidden.
-	 * If an input is provided, then the operation will only succeed if that same input is still
-	 * in the quick open control.
-	 */
-	refresh(input?: string): TPromise<void>;
-
-	/**
-	 * Returns the sorted list of editor inputs that have been opened by the user.
-	 */
-	getEditorHistory(): IEditorInput[];
-
-	/**
-	 * Removes an editor history entry by the given input.
-	 */
-	removeEditorHistoryEntry(input: IEditorInput): void;
+	show(prefix?: string, options?: IShowOptions): TPromise<void>;
 
 	/**
 	 * A convenient way to bring up quick open as a picker with custom elements. This bypasses the quick open handler
@@ -112,10 +115,10 @@ export interface IQuickOpenService {
 	 * Passing in a promise will allow you to resolve the elements in the background while quick open will show a
 	 * progress bar spinning.
 	 */
-	pick(picks: TPromise<string[]>, options?: IPickOptions): TPromise<string>;
-	pick<T extends IPickOpenEntry>(picks: TPromise<T[]>, options?: IPickOptions): TPromise<T>;
-	pick(picks: string[], options?: IPickOptions): TPromise<string>;
-	pick<T extends IPickOpenEntry>(picks: T[], options?: IPickOptions): TPromise<T>;
+	pick(picks: TPromise<string[]>, options?: IPickOptions, token?: CancellationToken): TPromise<string>;
+	pick<T extends IPickOpenEntry>(picks: TPromise<T[]>, options?: IPickOptions, token?: CancellationToken): TPromise<T>;
+	pick(picks: string[], options?: IPickOptions, token?: CancellationToken): TPromise<string>;
+	pick<T extends IPickOpenEntry>(picks: T[], options?: IPickOptions, token?: CancellationToken): TPromise<T>;
 
 	/**
 	 * Should not be used by clients. Will cause any opened quick open widget to navigate in the result set.
@@ -125,7 +128,22 @@ export interface IQuickOpenService {
 	/**
 	 * Opens the quick open box for user input and returns a promise with the user typed value if any.
 	 */
-	input(options?: IInputOptions): TPromise<string>;
+	input(options?: IInputOptions, token?: CancellationToken): TPromise<string>;
+
+	/**
+	 * Accepts the selected value in quick open if visible.
+	 */
+	accept(): void;
+
+	/**
+	 * Focus into the quick open if visible.
+	 */
+	focus(): void;
+
+	/**
+	 * Closes any opened quick open.
+	 */
+	close(): void;
 
 	/**
 	 * Allows to register on the event that quick open is showing

@@ -4,13 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {ContextMenuHandler} from './contextMenuHandler';
-import {IContextViewService, IContextMenuService, IContextMenuDelegate} from './contextView';
-import {ITelemetryService} from 'vs/platform/telemetry/common/telemetry';
-import {IMessageService} from 'vs/platform/message/common/message';
+import { ContextMenuHandler } from './contextMenuHandler';
+import { IContextViewService, IContextMenuService, IContextMenuDelegate } from './contextView';
+import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
+import { IMessageService } from 'vs/platform/message/common/message';
 
 export class ContextMenuService implements IContextMenuService {
-	public serviceId = IContextMenuService;
+	public _serviceBrand: any;
 
 	private contextMenuHandler: ContextMenuHandler;
 

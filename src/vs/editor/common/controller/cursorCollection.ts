@@ -4,11 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {onUnexpectedError} from 'vs/base/common/errors';
-import {IModeConfiguration, IOneCursorState, IViewModelHelper, OneCursor} from 'vs/editor/common/controller/oneCursor';
-import {Selection} from 'vs/editor/common/core/selection';
-import {IConfiguration, IEditorPosition, IEditorSelection, IModel, ISelection} from 'vs/editor/common/editorCommon';
-import {IAutoClosingPair} from 'vs/editor/common/modes';
+import { onUnexpectedError } from 'vs/base/common/errors';
+import { IModeConfiguration, IOneCursorState, IViewModelHelper, OneCursor } from 'vs/editor/common/controller/oneCursor';
+import { Selection } from 'vs/editor/common/core/selection';
+import { IConfiguration, IModel, ISelection } from 'vs/editor/common/editorCommon';
+import { IAutoClosingPair } from 'vs/editor/common/modes/languageConfiguration';
+import { Position } from 'vs/editor/common/core/position';
+import { LanguageConfigurationRegistry } from 'vs/editor/common/modes/languageConfigurationRegistry';
 
 export interface ICursorCollectionState {
 	primary: IOneCursorState;
@@ -28,9 +30,9 @@ export class CursorCollection {
 	// An index which identifies the last cursor that was added / moved (think Ctrl+drag)
 	private lastAddedCursorIndex: number;
 
-	private viewModelHelper:IViewModelHelper;
+	private viewModelHelper: IViewModelHelper;
 
-	constructor(editorId: number, model: IModel, configuration: IConfiguration, viewModelHelper:IViewModelHelper) {
+	constructor(editorId: number, model: IModel, configuration: IConfiguration, viewModelHelper: IViewModelHelper) {
 		this.editorId = editorId;
 		this.model = model;
 		this.configuration = configuration;
@@ -78,80 +80,73 @@ export class CursorCollection {
 		return result;
 	}
 
-	public getPosition(index: number): IEditorPosition {
+	public getPosition(index: number): Position {
 		if (index === 0) {
-			return this.primaryCursor.getPosition();
+			return this.primaryCursor.modelState.position;
 		} else {
-			return this.secondaryCursors[index - 1].getPosition();
+			return this.secondaryCursors[index - 1].modelState.position;
 		}
 	}
 
-	public getViewPosition(index: number): IEditorPosition {
+	public getViewPosition(index: number): Position {
 		if (index === 0) {
-			return this.primaryCursor.getViewPosition();
+			return this.primaryCursor.viewState.position;
 		} else {
-			return this.secondaryCursors[index - 1].getViewPosition();
+			return this.secondaryCursors[index - 1].viewState.position;
 		}
 	}
 
-	public getPositions(): IEditorPosition[] {
-		var result: IEditorPosition[] = [];
-		result.push(this.primaryCursor.getPosition());
+	public getPositions(): Position[] {
+		var result: Position[] = [];
+		result.push(this.primaryCursor.modelState.position);
 		for (var i = 0, len = this.secondaryCursors.length; i < len; i++) {
-			result.push(this.secondaryCursors[i].getPosition());
+			result.push(this.secondaryCursors[i].modelState.position);
 		}
 		return result;
 	}
 
-	public getViewPositions(): IEditorPosition[] {
-		var result: IEditorPosition[] = [];
-		result.push(this.primaryCursor.getViewPosition());
+	public getViewPositions(): Position[] {
+		var result: Position[] = [];
+		result.push(this.primaryCursor.viewState.position);
 		for (var i = 0, len = this.secondaryCursors.length; i < len; i++) {
-			result.push(this.secondaryCursors[i].getViewPosition());
+			result.push(this.secondaryCursors[i].viewState.position);
 		}
 		return result;
 	}
 
-	public getSelection(index: number): IEditorSelection {
+	public getSelection(index: number): Selection {
 		if (index === 0) {
-			return this.primaryCursor.getSelection();
+			return this.primaryCursor.modelState.selection;
 		} else {
-			return this.secondaryCursors[index - 1].getSelection();
+			return this.secondaryCursors[index - 1].modelState.selection;
 		}
 	}
 
-	public getSelections(): IEditorSelection[] {
-		var result: IEditorSelection[] = [];
-		result.push(this.primaryCursor.getSelection());
+	public getSelections(): Selection[] {
+		var result: Selection[] = [];
+		result.push(this.primaryCursor.modelState.selection);
 		for (var i = 0, len = this.secondaryCursors.length; i < len; i++) {
-			result.push(this.secondaryCursors[i].getSelection());
+			result.push(this.secondaryCursors[i].modelState.selection);
 		}
 		return result;
 	}
 
-	public getViewSelections(): IEditorSelection[] {
-		var result: IEditorSelection[] = [];
-		result.push(this.primaryCursor.getViewSelection());
+	public getViewSelections(): Selection[] {
+		var result: Selection[] = [];
+		result.push(this.primaryCursor.viewState.selection);
 		for (var i = 0, len = this.secondaryCursors.length; i < len; i++) {
-			result.push(this.secondaryCursors[i].getViewSelection());
+			result.push(this.secondaryCursors[i].viewState.selection);
 		}
 		return result;
 	}
 
 	public setSelections(selections: ISelection[], viewSelections?: ISelection[]): void {
-		this.primaryCursor.setSelection(selections[0]);
-		this._setSecondarySelections(selections.slice(1));
-
-		if (viewSelections) {
-			this.primaryCursor.setViewSelection(viewSelections[0]);
-			for (let i = 0; i < this.secondaryCursors.length; i++) {
-				this.secondaryCursors[i].setViewSelection(viewSelections[i + 1]);
-			}
-		}
+		this.primaryCursor.setSelection(selections[0], viewSelections ? viewSelections[0] : null);
+		this._setSecondarySelections(selections.slice(1), viewSelections ? viewSelections.slice(1) : null);
 	}
 
 	public killSecondaryCursors(): boolean {
-		return (this._setSecondarySelections([]) > 0);
+		return (this._setSecondarySelections([], []) > 0);
 	}
 
 	public normalize(): void {
@@ -173,7 +168,7 @@ export class CursorCollection {
 	}
 
 	public duplicateCursors(): void {
-		var newCursors:OneCursor[] = [];
+		var newCursors: OneCursor[] = [];
 
 		newCursors.push(this.primaryCursor.duplicate());
 		for (var i = 0, len = this.secondaryCursors.length; i < len; i++) {
@@ -198,7 +193,7 @@ export class CursorCollection {
 	 * 		- a negative number indicates the number of secondary cursors removed
 	 * 		- 0 indicates that no changes have been done to the secondary cursors list
 	 */
-	private _setSecondarySelections(secondarySelections: ISelection[]): number {
+	private _setSecondarySelections(secondarySelections: ISelection[], viewSelections: ISelection[]): number {
 		var secondaryCursorsLength = this.secondaryCursors.length;
 		var secondarySelectionsLength = secondarySelections.length;
 		var returnValue = secondarySelectionsLength - secondaryCursorsLength;
@@ -217,7 +212,7 @@ export class CursorCollection {
 
 		for (var i = 0; i < secondarySelectionsLength; i++) {
 			if (secondarySelections[i]) {
-				this.secondaryCursors[i].setSelection(secondarySelections[i]);
+				this.secondaryCursors[i].setSelection(secondarySelections[i], viewSelections ? viewSelections[i] : null);
 			}
 		}
 
@@ -237,16 +232,16 @@ export class CursorCollection {
 			return;
 		}
 		var cursors = this.getAll();
-		var sortedCursors:{
+		var sortedCursors: {
 			index: number;
-			selection: IEditorSelection;
-			viewSelection: IEditorSelection;
+			selection: Selection;
+			viewSelection: Selection;
 		}[] = [];
 		for (var i = 0; i < cursors.length; i++) {
 			sortedCursors.push({
 				index: i,
-				selection: cursors[i].getSelection(),
-				viewSelection: cursors[i].getViewSelection()
+				selection: cursors[i].modelState.selection,
+				viewSelection: cursors[i].viewState.selection
 			});
 		}
 
@@ -280,7 +275,7 @@ export class CursorCollection {
 					var winnerSelectionIsLTR = (winnerSelection.selectionStartLineNumber === winnerSelection.startLineNumber && winnerSelection.selectionStartColumn === winnerSelection.startColumn);
 
 					// Give more importance to the last added cursor (think Ctrl-dragging + hitting another cursor)
-					var resultingSelectionIsLTR:boolean;
+					var resultingSelectionIsLTR: boolean;
 					if (looserIndex === this.lastAddedCursorIndex) {
 						resultingSelectionIsLTR = looserSelectionIsLTR;
 						this.lastAddedCursorIndex = winnerIndex;
@@ -289,7 +284,7 @@ export class CursorCollection {
 						resultingSelectionIsLTR = winnerSelectionIsLTR;
 					}
 
-					var resultingSelection: IEditorSelection;
+					var resultingSelection: Selection;
 					if (resultingSelectionIsLTR) {
 						resultingSelection = new Selection(resultingRange.startLineNumber, resultingRange.startColumn, resultingRange.endLineNumber, resultingRange.endColumn);
 					} else {
@@ -325,16 +320,13 @@ export class CursorCollection {
 			surroundingPairs: {}
 		};
 
-		let richEditSupport = this.model.getMode().richEditSupport;
 
-		let electricChars: string[];
-		if (richEditSupport && richEditSupport.electricCharacter) {
-			try {
-				electricChars = richEditSupport.electricCharacter.getElectricCharacters();
-			} catch(e) {
-				onUnexpectedError(e);
-				electricChars = null;
-			}
+		let electricChars: string[] = null;
+		try {
+			electricChars = LanguageConfigurationRegistry.getElectricCharacters(this.model.getMode().getId());
+		} catch (e) {
+			onUnexpectedError(e);
+			electricChars = null;
 		}
 		if (electricChars) {
 			for (i = 0; i < electricChars.length; i++) {
@@ -343,13 +335,11 @@ export class CursorCollection {
 		}
 
 		let autoClosingPairs: IAutoClosingPair[];
-		if (richEditSupport && richEditSupport.characterPair) {
-			try {
-				autoClosingPairs = richEditSupport.characterPair.getAutoClosingPairs();
-			} catch(e) {
-				onUnexpectedError(e);
-				autoClosingPairs = null;
-			}
+		try {
+			autoClosingPairs = LanguageConfigurationRegistry.getAutoClosingPairs(this.model.getMode().getId());
+		} catch (e) {
+			onUnexpectedError(e);
+			autoClosingPairs = null;
 		}
 		if (autoClosingPairs) {
 			for (i = 0; i < autoClosingPairs.length; i++) {
@@ -359,13 +349,11 @@ export class CursorCollection {
 		}
 
 		let surroundingPairs: IAutoClosingPair[];
-		if (richEditSupport && richEditSupport.characterPair) {
-			try {
-				surroundingPairs = richEditSupport.characterPair.getSurroundingPairs();
-			} catch(e) {
-				onUnexpectedError(e);
-				surroundingPairs = null;
-			}
+		try {
+			surroundingPairs = LanguageConfigurationRegistry.getSurroundingPairs(this.model.getMode().getId());
+		} catch (e) {
+			onUnexpectedError(e);
+			surroundingPairs = null;
 		}
 		if (surroundingPairs) {
 			for (i = 0; i < surroundingPairs.length; i++) {

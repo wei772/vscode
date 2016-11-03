@@ -23,6 +23,13 @@
 				"farboo.nested.config2": {
 					"type": "string",
 					"default": "Das Pferd frisst kein Reis."
+				},
+				"farboo.config4": {
+					"type": "string"
+				},
+				"farboo.get": {
+					"type": "string",
+					"default": "get-prop"
 				}
 			}
 		}
@@ -34,6 +41,6 @@
 	},
 	"devDependencies": {
 		"typescript": "^1.6.2",
-		"vscode": "^0.11.1"
+		"vscode": "1.0.1"
 	}
 }

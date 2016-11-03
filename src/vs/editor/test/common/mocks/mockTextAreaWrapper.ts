@@ -4,9 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import Event, {Emitter} from 'vs/base/common/event';
-import {Disposable} from 'vs/base/common/lifecycle';
-import {IClipboardEvent, IKeyboardEventWrapper, ITextAreaWrapper} from 'vs/editor/common/controller/textAreaState';
+import Event, { Emitter } from 'vs/base/common/event';
+import { Disposable } from 'vs/base/common/lifecycle';
+import { IClipboardEvent, ICompositionEvent, IKeyboardEventWrapper, ITextAreaWrapper } from 'vs/editor/common/controller/textAreaState';
 
 export class MockTextAreaWrapper extends Disposable implements ITextAreaWrapper {
 
@@ -19,11 +19,14 @@ export class MockTextAreaWrapper extends Disposable implements ITextAreaWrapper 
 	private _onKeyPress = this._register(new Emitter<IKeyboardEventWrapper>());
 	public onKeyPress: Event<IKeyboardEventWrapper> = this._onKeyPress.event;
 
-	private _onCompositionStart = this._register(new Emitter<void>());
-	public onCompositionStart: Event<void> = this._onCompositionStart.event;
+	private _onCompositionStart = this._register(new Emitter<ICompositionEvent>());
+	public onCompositionStart: Event<ICompositionEvent> = this._onCompositionStart.event;
 
-	private _onCompositionEnd = this._register(new Emitter<void>());
-	public onCompositionEnd: Event<void> = this._onCompositionEnd.event;
+	private _onCompositionUpdate = this._register(new Emitter<ICompositionEvent>());
+	public onCompositionUpdate: Event<ICompositionEvent> = this._onCompositionUpdate.event;
+
+	private _onCompositionEnd = this._register(new Emitter<ICompositionEvent>());
+	public onCompositionEnd: Event<ICompositionEvent> = this._onCompositionEnd.event;
 
 	private _onInput = this._register(new Emitter<void>());
 	public onInput: Event<void> = this._onInput.event;
@@ -54,7 +57,7 @@ export class MockTextAreaWrapper extends Disposable implements ITextAreaWrapper 
 		return this._value;
 	}
 
-	public setValue(reason:string, value:string): void {
+	public setValue(reason: string, value: string): void {
 		this._value = value;
 		this._selectionStart = this._value.length;
 		this._selectionEnd = this._value.length;
@@ -68,7 +71,7 @@ export class MockTextAreaWrapper extends Disposable implements ITextAreaWrapper 
 		return this._selectionEnd;
 	}
 
-	public setSelectionRange(selectionStart:number, selectionEnd:number): void {
+	public setSelectionRange(selectionStart: number, selectionEnd: number): void {
 		if (selectionStart < 0) {
 			selectionStart = 0;
 		}

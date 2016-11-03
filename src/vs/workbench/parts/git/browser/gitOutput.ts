@@ -12,13 +12,13 @@ import { IOutputService } from 'vs/workbench/parts/output/common/output';
 
 export class GitOutput implements IWorkbenchContribution {
 
-	static ID = 'Monaco.IDE.UI.Viewlets.GitViewlet.Workbench.GitOutput';
+	static ID = 'vs.git.output';
 
 	private outputListener: IDisposable;
 	private gitService: IGitService;
 	private outputService: IOutputService;
 
-	constructor(@IGitService gitService: IGitService, @IOutputService outputService: IOutputService) {
+	constructor( @IGitService gitService: IGitService, @IOutputService outputService: IOutputService) {
 		this.gitService = gitService;
 		this.outputService = outputService;
 

@@ -5,18 +5,18 @@
 
 'use strict';
 
-import {ElectronWindow} from 'vs/workbench/electron-browser/window';
-import {createDecorator, ServiceIdentifier} from 'vs/platform/instantiation/common/instantiation';
-import Event, {Emitter} from 'vs/base/common/event';
+import { ElectronWindow } from 'vs/workbench/electron-browser/window';
+import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
+import Event, { Emitter } from 'vs/base/common/event';
 
-import {ipcRenderer as ipc, remote} from 'electron';
+import { ipcRenderer as ipc, remote } from 'electron';
 
 const windowId = remote.getCurrentWindow().id;
 
-export var IWindowService = createDecorator<IWindowService>('windowService');
+export const IWindowIPCService = createDecorator<IWindowIPCService>('windowIPCService');
 
 export interface IWindowServices {
-	windowService?: IWindowService;
+	windowService?: IWindowIPCService;
 }
 
 export interface IBroadcast {
@@ -24,8 +24,8 @@ export interface IBroadcast {
 	payload: any;
 }
 
-export interface IWindowService {
-	serviceId: ServiceIdentifier<any>;
+export interface IWindowIPCService {
+	_serviceBrand: any;
 
 	getWindowId(): number;
 
@@ -38,8 +38,12 @@ export interface IWindowService {
 	onBroadcast: Event<IBroadcast>;
 }
 
-export class WindowService implements IWindowService {
-	public serviceId = IWindowService;
+/**
+ * TODO@Joao: remove this service
+ * @deprecated
+ */
+export class WindowIPCService implements IWindowIPCService {
+	public _serviceBrand: any;
 
 	private win: ElectronWindow;
 	private windowId: number;

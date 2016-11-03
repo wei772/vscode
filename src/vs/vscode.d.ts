@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-declare namespace vscode {
+declare module 'vscode' {
 
 	/**
 	 * The version of the editor.
@@ -73,7 +73,7 @@ declare namespace vscode {
 
 		/**
 		 * The offset of the first character which is not a whitespace character as defined
-		 * by `/\s/`.
+		 * by `/\s/`. **Note** that if a line is all whitespaces the length of the line is returned.
 		 *
 		 * @readonly
 		 */
@@ -81,7 +81,7 @@ declare namespace vscode {
 
 		/**
 		 * Whether this line is whitespace only, shorthand
-		 * for [TextLine.firstNonWhitespaceCharacterIndex](#TextLine.firstNonWhitespaceCharacterIndex]) === [TextLine.text.length](#TextLine.text.length).
+		 * for [TextLine.firstNonWhitespaceCharacterIndex](#TextLine.firstNonWhitespaceCharacterIndex) === [TextLine.text.length](#TextLine.text).
 		 *
 		 * @readonly
 		 */
@@ -105,7 +105,7 @@ declare namespace vscode {
 
 		/**
 		 * The file system path of the associated resource. Shorthand
-		 * notation for [TextDocument.uri.fsPath](#TextDocument.uri.fsPath). Independent of the uri scheme.
+		 * notation for [TextDocument.uri.fsPath](#TextDocument.uri). Independent of the uri scheme.
 		 *
 		 * @readonly
 		 */
@@ -329,6 +329,15 @@ declare namespace vscode {
 		translate(lineDelta?: number, characterDelta?: number): Position;
 
 		/**
+		 * Derived a new position relative to this position.
+		 *
+		 * @param change An object that describes a delta to this position.
+		 * @return A position that reflects the given delta. Will return `this` position if the change
+		 * is not changing anything.
+		 */
+		translate(change: { lineDelta?: number; characterDelta?: number; }): Position;
+
+		/**
 		 * Create a new position derived from this position.
 		 *
 		 * @param line Value that should be used as line value, default is the [existing value](#Position.line)
@@ -336,6 +345,15 @@ declare namespace vscode {
 		 * @return A position where line and character are replaced by the given values.
 		 */
 		with(line?: number, character?: number): Position;
+
+		/**
+		 * Derived a new position from this position.
+		 *
+		 * @param change An object that describes a change to this position.
+		 * @return A position that reflects the given change. Will return `this` position if the change
+		 * is not changing anything.
+		 */
+		with(change: { line?: number; character?: number; }): Position;
 	}
 
 	/**
@@ -427,14 +445,23 @@ declare namespace vscode {
 		union(other: Range): Range;
 
 		/**
-		 * Create a new range derived from this range.
+		 * Derived a new range from this range.
 		 *
 		 * @param start A position that should be used as start. The default value is the [current start](#Range.start).
 		 * @param end A position that should be used as end. The default value is the [current end](#Range.end).
 		 * @return A range derived from this range with the given start and end position.
-		 * If start and end are not different this range will be returned.
+		 * If start and end are not different `this` range will be returned.
 		 */
 		with(start?: Position, end?: Position): Range;
+
+		/**
+		 * Derived a new range from this range.
+		 *
+		 * @param change An object that describes a change to this range.
+		 * @return A range that reflects the given change. Will return `this` range if the change
+		 * is not changing anything.
+		 */
+		with(change: { start?: Position, end?: Position }): Range;
 	}
 
 	/**
@@ -479,6 +506,24 @@ declare namespace vscode {
 	}
 
 	/**
+	 * Represents sources that can cause [selection change events](#window.onDidChangeTextEditorSelection).
+	*/
+	export enum TextEditorSelectionChangeKind {
+		/**
+		 * Selection changed due to typing in the editor.
+		 */
+		Keyboard = 1,
+		/**
+		 * Selection change due to clicking in the editor.
+		 */
+		Mouse = 2,
+		/**
+		 * Selection changed because a command ran.
+		 */
+		Command = 3
+	}
+
+	/**
 	 * Represents an event describing the change in a [text editor's selections](#TextEditor.selections).
 	 */
 	export interface TextEditorSelectionChangeEvent {
@@ -486,6 +531,11 @@ declare namespace vscode {
 		 * The [text editor](#TextEditor) for which the selections have changed.
 		 */
 		textEditor: TextEditor;
+		/**
+		 * The [change kind](#TextEditorSelectionChangeKind) which has triggered this
+		 * event. Can be `undefined`.
+		 */
+		kind: TextEditorSelectionChangeKind;
 		/**
 		 * The new value for the [text editor's selections](#TextEditor.selections).
 		 */
@@ -539,6 +589,24 @@ declare namespace vscode {
 	}
 
 	/**
+	 * Rendering style of the line numbers.
+	 */
+	export enum TextEditorLineNumbersStyle {
+		/**
+		 * Do not render the line numbers.
+		 */
+		Off = 0,
+		/**
+		 * Render the line numbers.
+		 */
+		On = 1,
+		/**
+		 * Render the line numbers with values relative to the primary cursor location.
+		 */
+		Relative = 2
+	}
+
+	/**
 	 * Represents a [text editor](#TextEditor)'s [options](#TextEditor.options).
 	 */
 	export interface TextEditorOptions {
@@ -547,6 +615,7 @@ declare namespace vscode {
 		 * The size in spaces a tab takes. This is used for two purposes:
 		 *  - the rendering width of a tab character;
 		 *  - the number of spaces to insert when [insertSpaces](#TextEditorOptions.insertSpaces) is true.
+		 *
 		 * When getting a text editor's options, this property will always be a number (resolved).
 		 * When setting a text editor's options, this property is optional and it can be a number or `"auto"`.
 		 */
@@ -565,6 +634,13 @@ declare namespace vscode {
 		 * When setting a text editor's options, this property is optional.
 		 */
 		cursorStyle?: TextEditorCursorStyle;
+
+		/**
+		 * Render relative line numbers w.r.t. the current line number.
+		 * When getting a text editor's options, this property will always be present.
+		 * When setting a text editor's options, this property is optional.
+		 */
+		lineNumbers?: TextEditorLineNumbersStyle;
 	}
 
 	/**
@@ -595,16 +671,16 @@ declare namespace vscode {
 		/**
 		 * The range will be revealed with as little scrolling as possible.
 		 */
-		Default,
+		Default = 0,
 		/**
 		 * The range will always be revealed in the center of the viewport.
 		 */
-		InCenter,
+		InCenter = 1,
 		/**
 		 * If the range is outside the viewport, it will be revealed in the center of the viewport.
 		 * Otherwise, it will be revealed with as little scrolling as possible.
 		 */
-		InCenterIfOutsideViewport
+		InCenterIfOutsideViewport = 2
 	}
 
 	/**
@@ -630,40 +706,58 @@ declare namespace vscode {
 		/**
 		 * CSS styling property that will be applied to text enclosed by a decoration.
 		 */
+		outline?: string;
+
+		/**
+		 * CSS styling property that will be applied to text enclosed by a decoration.
+		 * Better use 'outline' for setting one or more of the individual outline properties.
+		 */
 		outlineColor?: string;
 
 		/**
 		 * CSS styling property that will be applied to text enclosed by a decoration.
+		 * Better use 'outline' for setting one or more of the individual outline properties.
 		 */
 		outlineStyle?: string;
 
 		/**
 		 * CSS styling property that will be applied to text enclosed by a decoration.
+		 * Better use 'outline' for setting one or more of the individual outline properties.
 		 */
 		outlineWidth?: string;
 
 		/**
 		 * CSS styling property that will be applied to text enclosed by a decoration.
 		 */
+		border?: string;
+
+		/**
+		 * CSS styling property that will be applied to text enclosed by a decoration.
+		 * Better use 'border' for setting one or more of the individual border properties.
+		 */
 		borderColor?: string;
 
 		/**
 		 * CSS styling property that will be applied to text enclosed by a decoration.
+		 * Better use 'border' for setting one or more of the individual border properties.
 		 */
 		borderRadius?: string;
 
 		/**
 		 * CSS styling property that will be applied to text enclosed by a decoration.
+		 * Better use 'border' for setting one or more of the individual border properties.
 		 */
 		borderSpacing?: string;
 
 		/**
 		 * CSS styling property that will be applied to text enclosed by a decoration.
+		 * Better use 'border' for setting one or more of the individual border properties.
 		 */
 		borderStyle?: string;
 
 		/**
 		 * CSS styling property that will be applied to text enclosed by a decoration.
+		 * Better use 'border' for setting one or more of the individual border properties.
 		 */
 		borderWidth?: string;
 
@@ -688,14 +782,71 @@ declare namespace vscode {
 		letterSpacing?: string;
 
 		/**
-		 * An **absolute path** to an image to be rendered in the gutterIconPath.
+		 * An **absolute path** or an URI to an image to be rendered in the gutter.
 		 */
-		gutterIconPath?: string;
+		gutterIconPath?: string | Uri;
+
+		/**
+		 * Specifies the size of the gutter icon.
+		 * Available values are 'auto', 'contain', 'cover' and any percentage value.
+		 * For further information: https://msdn.microsoft.com/en-us/library/jj127316(v=vs.85).aspx
+		 */
+		gutterIconSize?: string;
 
 		/**
 		 * The color of the decoration in the overview ruler. Use rgba() and define transparent colors to play well with other decorations.
 		 */
 		overviewRulerColor?: string;
+
+		/**
+		 * Defines the rendering options of the attachment that is inserted before the decorated text
+		 */
+		before?: ThemableDecorationAttachmentRenderOptions;
+
+		/**
+		 * Defines the rendering options of the attachment that is inserted after the decorated text
+		 */
+		after?: ThemableDecorationAttachmentRenderOptions;
+	}
+
+	export interface ThemableDecorationAttachmentRenderOptions {
+		/**
+		 * Defines a text content that is shown in the attachment. Either an icon or a text can be shown, but not both.
+		 */
+		contentText?: string;
+		/**
+		 * An **absolute path** or an URI to an image to be rendered in the attachment. Either an icon
+		 * or a text can be shown, but not both.
+		 */
+		contentIconPath?: string | Uri;
+		/**
+		 * CSS styling property that will be applied to the decoration attachment.
+		 */
+		border?: string;
+		/**
+		 * CSS styling property that will be applied to the decoration attachment.
+		 */
+		textDecoration?: string;
+		/**
+		 * CSS styling property that will be applied to the decoration attachment.
+		 */
+		color?: string;
+		/**
+		 * CSS styling property that will be applied to the decoration attachment.
+		 */
+		backgroundColor?: string;
+		/**
+		 * CSS styling property that will be applied to the decoration attachment.
+		 */
+		margin?: string;
+		/**
+		 * CSS styling property that will be applied to the decoration attachment.
+		 */
+		width?: string;
+		/**
+		 * CSS styling property that will be applied to the decoration attachment.
+		 */
+		height?: string;
 	}
 
 	/**
@@ -730,14 +881,44 @@ declare namespace vscode {
 	export interface DecorationOptions {
 
 		/**
-		 * Range to which this decoration is applied.
+		 * Range to which this decoration is applied. The range must not be empty.
 		 */
 		range: Range;
 
 		/**
 		 * A message that should be rendered when hovering over the decoration.
 		 */
-		hoverMessage: MarkedString | MarkedString[];
+		hoverMessage?: MarkedString | MarkedString[];
+
+		/**
+		 * Render options applied to the current decoration. For performance reasons, keep the
+		 * number of decoration specific options small, and use decoration types whereever possible.
+		 */
+		renderOptions?: DecorationInstanceRenderOptions;
+	}
+
+	export interface ThemableDecorationInstanceRenderOptions {
+		/**
+		 * Defines the rendering options of the attachment that is inserted before the decorated text
+		 */
+		before?: ThemableDecorationAttachmentRenderOptions;
+
+		/**
+		 * Defines the rendering options of the attachment that is inserted after the decorated text
+		 */
+		after?: ThemableDecorationAttachmentRenderOptions;
+	}
+
+	export interface DecorationInstanceRenderOptions extends ThemableDecorationInstanceRenderOptions {
+		/**
+		 * Overwrite options for light themes.
+		 */
+		light?: ThemableDecorationInstanceRenderOptions;
+
+		/**
+		 * Overwrite options for dark themes.
+		 */
+		dark?: ThemableDecorationInstanceRenderOptions
 	}
 
 	/**
@@ -778,10 +959,11 @@ declare namespace vscode {
 		 * be used to make edits. Note that the edit-builder is only valid while the
 		 * callback executes.
 		 *
-		 * @param callback A function which can make edits using an [edit-builder](#TextEditorEdit).
+		 * @param callback A function which can create edits using an [edit-builder](#TextEditorEdit).
+		 * @param options The undo/redo behaviour around this edit. By default, undo stops will be created before and after this edit.
 		 * @return A promise that resolves with a value indicating if the edits could be applied.
 		 */
-		edit(callback: (editBuilder: TextEditorEdit) => void): Thenable<boolean>;
+		edit(callback: (editBuilder: TextEditorEdit) => void, options?: { undoStopBefore: boolean; undoStopAfter: boolean; }): Thenable<boolean>;
 
 		/**
 		 * Adds a set of decorations to the text editor. If a set of decorations already exists with
@@ -822,7 +1004,7 @@ declare namespace vscode {
 	}
 
 	/**
-	 * Represents an end of line character sequence in a [document](#Document).
+	 * Represents an end of line character sequence in a [document](#TextDocument).
 	 */
 	export enum EndOfLine {
 		/**
@@ -838,13 +1020,13 @@ declare namespace vscode {
 	/**
 	 * A complex edit that will be applied in one transaction on a TextEditor.
 	 * This holds a description of the edits and if the edits are valid (i.e. no overlapping regions, document was not changed in the meantime, etc.)
-	 * they can be applied on a [document](#Document) associated with a [text editor](#TextEditor).
+	 * they can be applied on a [document](#TextDocument) associated with a [text editor](#TextEditor).
 	 *
 	 */
 	export interface TextEditorEdit {
 		/**
 		 * Replace a certain text region with a new value.
-		 * You can use \r\n or \n in `value` and they will be normalized to the current [document](#Document).
+		 * You can use \r\n or \n in `value` and they will be normalized to the current [document](#TextDocument).
 		 *
 		 * @param location The range this operation should remove.
 		 * @param value The new text this operation should insert after removing `location`.
@@ -853,7 +1035,7 @@ declare namespace vscode {
 
 		/**
 		 * Insert text at a location.
-		 * You can use \r\n or \n in `value` and they will be normalized to the current [document](#Document).
+		 * You can use \r\n or \n in `value` and they will be normalized to the current [document](#TextDocument).
 		 * Although the equivalent text edit can be made with [replace](#TextEditorEdit.replace), `insert` will produce a different resulting selection (it will get moved).
 		 *
 		 * @param location The position where the new text should be inserted.
@@ -871,7 +1053,7 @@ declare namespace vscode {
 		/**
 		 * Set the end of line sequence.
 		 *
-		 * @param endOfLine The new end of line for the [document](#Document).
+		 * @param endOfLine The new end of line for the [document](#TextDocument).
 		 */
 		setEndOfLine(endOfLine: EndOfLine): void;
 	}
@@ -935,6 +1117,21 @@ declare namespace vscode {
 		 * invalid characters and semantics. Will *not* look at the scheme of this Uri.
 		 */
 		fsPath: string;
+
+		/**
+		 * Derive a new Uri from this Uri.
+		 *
+		 * @param change An object that describes a change to this Uri. To unset components use `null` or
+		 *  the empty string.
+		 * @return A new Uri that reflects the given change. Will return `this` Uri if the change
+		 *  is not changing anything.
+		 * @sample ```
+			let file = Uri.parse('before:some/file/path');
+			let other = file.with({ scheme: 'after' });
+			assert.ok(other.toString() === 'after:some/file/path');
+		 * ```
+		 */
+		with(change: { scheme?: string; authority?: string; path?: string; query?: string; fragment?: string }): Uri;
 
 		/**
 		 * Returns a string representation of this Uri. The representation and normalization
@@ -1043,7 +1240,7 @@ declare namespace vscode {
 		 *
 		 * @param listener The listener function will be called when the event happens.
 		 * @param thisArgs The `this`-argument which will be used when calling the event listener.
-		 * @param disposables An array to which a [disposeable](#Disposable) will be added.
+		 * @param disposables An array to which a [disposable](#Disposable) will be added.
 		 * @return A disposable which unsubscribes the event listener.
 		 */
 		(listener: (e: T) => any, thisArgs?: any, disposables?: Disposable[]): Disposable;
@@ -1125,9 +1322,9 @@ declare namespace vscode {
 	 * A text document content provider allows to add readonly documents
 	 * to the editor, such as source from a dll or generated html from md.
 	 *
-	 * Content providers are [registered](#workbench.registerTextDocumentContentProvider)
+	 * Content providers are [registered](#workspace.registerTextDocumentContentProvider)
 	 * for a [uri-scheme](#Uri.scheme). When a uri with that scheme is to
-	 * be [loaded](#workbench.openTextDocument) the content provider is
+	 * be [loaded](#workspace.openTextDocument) the content provider is
 	 * asked.
 	 */
 	export interface TextDocumentContentProvider {
@@ -1142,7 +1339,7 @@ declare namespace vscode {
 		 *
 		 * The editor will use the returned string-content to create a readonly
 		 * [document](TextDocument). Resources allocated should be released when
-		 * the corresponding document has been [closed](#workbench.onDidCloseTextDocument).
+		 * the corresponding document has been [closed](#workspace.onDidCloseTextDocument).
 		 *
 		 * @param uri An uri which scheme matches the scheme this provider was [registered](#workspace.registerTextDocumentContentProvider) for.
 		 * @param token A cancellation token.
@@ -1193,6 +1390,11 @@ declare namespace vscode {
 		placeHolder?: string;
 
 		/**
+		 * Set to `true` to keep the picker open when focus moves to another part of the editor or to another window.
+		 */
+		ignoreFocusOut?: boolean;
+
+		/**
 		 * An optional function that is invoked whenever an item is selected.
 		 */
 		onDidSelectItem?: <T extends QuickPickItem>(item: T | string) => any;
@@ -1241,19 +1443,24 @@ declare namespace vscode {
 		placeHolder?: string;
 
 		/**
-		 * Set to true to show a password prompt that will not show the typed value.
+		 * Set to `true` to show a password prompt that will not show the typed value.
 		 */
 		password?: boolean;
 
 		/**
-		 * An optional function that will be called to valide input and to give a hint
+		 * Set to `true` to keep the input box open when focus moves to another part of the editor or to another window.
+		 */
+		ignoreFocusOut?: boolean;
+
+		/**
+		 * An optional function that will be called to validate input and to give a hint
 		 * to the user.
 		 *
 		 * @param value The current value of the input box.
 		 * @return A human readable string which is presented as diagnostic message.
 		 * Return `undefined`, `null`, or the empty string when 'value' is valid.
 		 */
-		validateInput?: (value: string) => string;
+		validateInput?(value: string): string;
 	}
 
 	/**
@@ -1284,7 +1491,7 @@ declare namespace vscode {
 
 	/**
 	 * A language selector is the combination of one or many language identifiers
-	 * and [language filters](#LanguageFilter).
+	 * and [language filters](#DocumentFilter).
 	 *
 	 * @sample `let sel:DocumentSelector = 'typescript'`;
 	 * @sample `let sel:DocumentSelector = ['typescript', { language: 'json', pattern: '**∕tsconfig.json' }]`;
@@ -1479,17 +1686,17 @@ declare namespace vscode {
 		/**
 		 * A textual occurrence.
 		 */
-		Text,
+		Text = 0,
 
 		/**
 		 * Read-access of a symbol, like reading a variable.
 		 */
-		Read,
+		Read = 1,
 
 		/**
 		 * Write-access of a symbol, like writing to a variable.
 		 */
-		Write
+		Write = 2
 	}
 
 	/**
@@ -1541,27 +1748,27 @@ declare namespace vscode {
 	 * A symbol kind.
 	 */
 	export enum SymbolKind {
-		File,
-		Module,
-		Namespace,
-		Package,
-		Class,
-		Method,
-		Property,
-		Field,
-		Constructor,
-		Enum,
-		Interface,
-		Function,
-		Variable,
-		Constant,
-		String,
-		Number,
-		Boolean,
-		Array,
-		Object,
-		Key,
-		Null
+		File = 0,
+		Module = 1,
+		Namespace = 2,
+		Package = 3,
+		Class = 4,
+		Method = 5,
+		Property = 6,
+		Field = 7,
+		Constructor = 8,
+		Enum = 9,
+		Interface = 10,
+		Function = 11,
+		Variable = 12,
+		Constant = 13,
+		String = 14,
+		Number = 15,
+		Boolean = 16,
+		Array = 17,
+		Object = 18,
+		Key = 19,
+		Null = 20
 	}
 
 	/**
@@ -1591,6 +1798,18 @@ declare namespace vscode {
 		location: Location;
 
 		/**
+		 * Creates a new symbol information object.
+		 *
+		 * @param name The name of the symbol.
+		 * @param kind The kind of the symbol.
+		 * @param containerName The name of the symbol containing the symbol.
+		 * @param location The the location of the symbol.
+		 */
+		constructor(name: string, kind: SymbolKind, containerName: string, location: Location);
+
+		/**
+		 * @deprecated Please use the constructor taking a [location](#Location) object.
+		 *
 		 * Creates a new symbol information object.
 		 *
 		 * @param name The name of the symbol.
@@ -1627,7 +1846,9 @@ declare namespace vscode {
 
 		/**
 		 * Project-wide search for a symbol matching the given query string. It is up to the provider
-		 * how to search given the query string, like substring, indexOf etc.
+		 * how to search given the query string, like substring, indexOf etc. To improve performance implementors can
+		 * skip the [location](#SymbolInformation.location) of symbols and implement `resolveWorkspaceSymbol` to do that
+		 * later.
 		 *
 		 * @param query A non-empty query string.
 		 * @param token A cancellation token.
@@ -1635,6 +1856,20 @@ declare namespace vscode {
 		 * signaled by returning `undefined`, `null`, or an empty array.
 		 */
 		provideWorkspaceSymbols(query: string, token: CancellationToken): SymbolInformation[] | Thenable<SymbolInformation[]>;
+
+		/**
+		 * Given a symbol fill in its [location](#SymbolInformation.location). This method is called whenever a symbol
+		 * is selected in the UI. Providers can implement this method and return incomplete symbols from
+		 * [`provideWorkspaceSymbols`](#WorkspaceSymbolProvider.provideWorkspaceSymbols) which often helps to improve
+		 * performance.
+		 *
+		 * @param symbol The symbol that is to be resolved. Guaranteed to be an instance of an object returned from an
+		 * earlier call to `provideWorkspaceSymbols`.
+		 * @param token A cancellation token.
+		 * @return The resolved symbol or a thenable that resolves to that. When no result is returned,
+		 * the given `symbol` is used.
+		 */
+		resolveWorkspaceSymbol?(symbol: SymbolInformation, token: CancellationToken): SymbolInformation | Thenable<SymbolInformation>;
 	}
 
 	/**
@@ -1999,35 +2234,37 @@ declare namespace vscode {
 	 * Completion item kinds.
 	 */
 	export enum CompletionItemKind {
-		Text,
-		Method,
-		Function,
-		Constructor,
-		Field,
-		Variable,
-		Class,
-		Interface,
-		Module,
-		Property,
-		Unit,
-		Value,
-		Enum,
-		Keyword,
-		Snippet,
-		Color,
-		File,
-		Reference
+		Text = 0,
+		Method = 1,
+		Function = 2,
+		Constructor = 3,
+		Field = 4,
+		Variable = 5,
+		Class = 6,
+		Interface = 7,
+		Module = 8,
+		Property = 9,
+		Unit = 10,
+		Value = 11,
+		Enum = 12,
+		Keyword = 13,
+		Snippet = 14,
+		Color = 15,
+		File = 16,
+		Reference = 17
 	}
 
 	/**
-	 * A completion item represents a text snippet that is
-	 * proposed to complete text that is being typed.
+	 * A completion item represents a text snippet that is proposed to complete text that is being typed.
 	 *
-	 * It is suffient to create a completion item from just
-	 * a [label](#CompletionItem.label). In that case the completion
-	 * item will replace the [word](#TextDocument.getWordRangeAtPosition)
-	 * until the cursor with the given label.
+	 * It is suffient to create a completion item from just a [label](#CompletionItem.label). In that
+	 * case the completion item will replace the [word](#TextDocument.getWordRangeAtPosition)
+	 * until the cursor with the given label or [insertText](#CompletionItem.insertText). Otherwise the
+	 * the given [edit](#CompletionItem.textEdit) is used.
 	 *
+	 * When selecting a completion item in the editor its defined or synthesized text edit will be applied
+	 * to *all* cursors/selections whereas [additionalTextEdits](CompletionItem.additionalTextEdits) will be
+	 * applied as provided.
 	 *
 	 * @see [CompletionItemProvider.provideCompletionItems](#CompletionItemProvider.provideCompletionItems)
 	 * @see [CompletionItemProvider.resolveCompletionItem](#CompletionItemProvider.resolveCompletionItem)
@@ -2084,10 +2321,24 @@ declare namespace vscode {
 		 * this completion. When an edit is provided the value of
 		 * [insertText](#CompletionItem.insertText) is ignored.
 		 *
-		 * The [range](#Range) of the edit must be single-line and one the same
-		 * line completions where [requested](#CompletionItemProvider.provideCompletionItems) at.
+		 * The [range](#Range) of the edit must be single-line and on the same
+		 * line completions were [requested](#CompletionItemProvider.provideCompletionItems) at.
 		 */
 		textEdit: TextEdit;
+
+		/**
+		 * An optional array of additional [text edits](#TextEdit) that are applied when
+		 * selecting this completion. Edits must not overlap with the main [edit](#CompletionItem.textEdit)
+		 * nor with themselves.
+		 */
+		additionalTextEdits: TextEdit[];
+
+		/**
+		 * An optional [command](#Command) that is executed *after* inserting this completion. *Note* that
+		 * additional modifications to the current document should be described with the
+		 * [additionalTextEdits](#CompletionItem.additionalTextEdits)-property.
+		 */
+		command: Command;
 
 		/**
 		 * Creates a new completion item.
@@ -2096,8 +2347,9 @@ declare namespace vscode {
 		 * will be used as insert text as well as for sorting and filtering.
 		 *
 		 * @param label The label of the completion.
+		 * @param kind The [kind](#CompletionItemKind) of the completion.
 		 */
-		constructor(label: string);
+		constructor(label: string, kind?: CompletionItemKind);
 	}
 
 	/**
@@ -2128,7 +2380,7 @@ declare namespace vscode {
 
 	/**
 	 * The completion item provider interface defines the contract between extensions and
-	 * the [IntelliSense](https://code.visualstudio.com/docs/editor/editingevolved#_intellisense).
+	 * [IntelliSense](https://code.visualstudio.com/docs/editor/editingevolved#_intellisense).
 	 *
 	 * When computing *complete* completion items is expensive, providers can optionally implement
 	 * the `resolveCompletionItem`-function. In that case it is enough to return completion
@@ -2136,6 +2388,9 @@ declare namespace vscode {
 	 * [provideCompletionItems](#CompletionItemProvider.provideCompletionItems)-function. Subsequently,
 	 * when a completion item is shown in the UI and gains focus this provider is asked to resolve
 	 * the item, like adding [doc-comment](#CompletionItem.documentation) or [details](#CompletionItem.detail).
+	 *
+	 * Providers are asked for completions either explicitly by a user gesture or -depending on the configuration-
+	 * implicitly when typing words or trigger characters.
 	 */
 	export interface CompletionItemProvider {
 
@@ -2162,6 +2417,61 @@ declare namespace vscode {
 		 * `item`. When no result is returned, the given `item` will be used.
 		 */
 		resolveCompletionItem?(item: CompletionItem, token: CancellationToken): CompletionItem | Thenable<CompletionItem>;
+	}
+
+
+	/**
+	 * A document link is a range in a text document that links to an internal or external resource, like another
+	 * text document or a web site.
+	 */
+	export class DocumentLink {
+
+		/**
+		 * The range this link applies to.
+		 */
+		range: Range;
+
+		/**
+		 * The uri this link points to.
+		 */
+		target: Uri;
+
+		/**
+		 * Creates a new document link.
+		 *
+		 * @param range The range the document link applies to. Must not be empty.
+		 * @param target The uri the document link points to.
+		 */
+		constructor(range: Range, target: Uri);
+	}
+
+	/**
+	 * The document link provider defines the contract between extensions and feature of showing
+	 * links in the editor.
+	 */
+	export interface DocumentLinkProvider {
+
+		/**
+		 * Provide links for the given document. Note that the editor ships with a default provider that detects
+		 * `http(s)` and `file` links.
+		 *
+		 * @param document The document in which the command was invoked.
+		 * @param token A cancellation token.
+		 * @return An array of [document links](#DocumentLink) or a thenable that resolves to such. The lack of a result
+		 *  can be signaled by returning `undefined`, `null`, or an empty array.
+		 */
+		provideDocumentLinks(document: TextDocument, token: CancellationToken): DocumentLink[] | Thenable<DocumentLink[]>;
+
+		/**
+		 * Given a link fill in its [target](#DocumentLink.target). This method is called when an incomplete
+		 * link is selected in the UI. Providers can implement this method and return incomple links
+		 * (without target) from the [`provideDocumentLinks`](#DocumentLinkProvider.provideDocumentLinks) method which
+		 * often helps to improve performance.
+		 *
+		 * @param link The link that is to be resolved.
+		 * @param token A cancellation token.
+		 */
+		resolveDocumentLink?(link: DocumentLink, token: CancellationToken): DocumentLink | Thenable<DocumentLink>;
 	}
 
 	/**
@@ -2215,21 +2525,21 @@ declare namespace vscode {
 		/**
 		 * Insert new line and copy the previous line's indentation.
 		 */
-		None,
+		None = 0,
 		/**
 		 * Insert new line and indent once (relative to the previous line's indentation).
 		 */
-		Indent,
+		Indent = 1,
 		/**
 		 * Insert two new lines:
 		 *  - the first one indented which will hold the cursor
 		 *  - the second one at the same indentation level
 		 */
-		IndentOutdent,
+		IndentOutdent = 2,
 		/**
 		 * Insert new line and outdent once (relative to the previous line's indentation).
 		 */
-		Outdent
+		Outdent = 3
 	}
 
 	/**
@@ -2311,6 +2621,12 @@ declare namespace vscode {
 			 * @deprecated
 			 */
 			brackets?: any;
+			/**
+			 * This property is deprecated and not fully supported anymore by
+			 * the editor (scope and lineStart are ignored).
+			 * Use the the autoClosingPairs property in the language configuration file instead.
+			 * @deprecated
+			 */
 			docComment?: {
 				scope: string;
 				open: string;
@@ -2322,7 +2638,7 @@ declare namespace vscode {
 		/**
 		 * **Deprecated** Do not use.
 		 *
-		 * @deprecated Will be replaced by a better API soon.
+		 * @deprecated * Use the the autoClosingPairs property in the language configuration file instead.
 		 */
 		__characterPairSupport?: {
 			autoClosingPairs: {
@@ -2334,9 +2650,24 @@ declare namespace vscode {
 	}
 
 	/**
-	 * Represents the workspace configuration. The workspace configuration
-	 * is always a merged view of the configuration of the current [workspace](#workspace.rootPath)
-	 * and the installation-wide configuration.
+	 * Represents the workspace configuration.
+	 *
+	 * The workspace configuration is a merged view: Configurations of the current [workspace](#workspace.rootPath)
+	 * (if available), files like `launch.json`, and the installation-wide configuration. Workspace specific values
+	 * shadow installation-wide values.
+	 *
+	 * *Note:* The merged configuration of the current [workspace](#workspace.rootPath)
+	 * also contains settings from files like `launch.json` and `tasks.json`. Their basename will be
+	 * part of the section identifier. The following snippets shows how to retrieve all configurations
+	 * from `launch.json`:
+	 *
+	 * ```
+	 * // launch.json configuration
+	 * const config = workspace.getConfiguration('launch');
+	 *
+	 * // retrieve values
+	 * const values = config.get('configurations');
+	 * ```
 	 */
 	export interface WorkspaceConfiguration {
 
@@ -2352,10 +2683,27 @@ declare namespace vscode {
 		/**
 		 * Check if this configuration has a certain value.
 		 *
-		 * @param section configuration name, supports _dotted_ names.
+		 * @param section Configuration name, supports _dotted_ names.
 		 * @return `true` iff the section doesn't resolve to `undefined`.
 		 */
 		has(section: string): boolean;
+
+		/**
+		 * Update a configuration value. A value can be changed for the current
+		 * [workspace](#workspace.rootPath) only, or globally for all instances of the
+		 * editor. The updated configuration values are persisted.
+		 *
+		 * *Note 1:* Setting an installation-wide value (`global: true`) in the presence of
+		 * a more specific workspace value has no observable effect in that workspace, but
+		 * in others.
+		 *
+		 * *Note 2:* To remove a configuration value use `undefined`, like so: `config.update('somekey', undefined)`
+		 *
+		 * @param section Configuration name, supports _dotted_ names.
+		 * @param value The new value.
+		 * @param global When `true` changes the configuration value for all instances of the editor.
+		 */
+		update(section: string, value: any, global?: boolean): Thenable<void>;
 
 		/**
 		 * Readable dictionary that backs this configuration.
@@ -2463,7 +2811,7 @@ declare namespace vscode {
 	/**
 	 * A diagnostics collection is a container that manages a set of
 	 * [diagnostics](#Diagnostic). Diagnostics are always scopes to a
-	 * a diagnostics collection and a resource.
+	 * diagnostics collection and a resource.
 	 *
 	 * To get an instance of a `DiagnosticCollection` use
 	 * [createDiagnosticCollection](#languages.createDiagnosticCollection).
@@ -2474,6 +2822,7 @@ declare namespace vscode {
 		 * The name of this diagnostic collection, for instance `typescript`. Every diagnostic
 		 * from this collection will be associated with this name. Also, the task framework uses this
 		 * name when defining [problem matchers](https://code.visualstudio.com/docs/editor/tasks#_defining-a-problem-matcher).
+		 * @readonly
 		 */
 		name: string;
 
@@ -2487,19 +2836,24 @@ declare namespace vscode {
 		set(uri: Uri, diagnostics: Diagnostic[]): void;
 
 		/**
+		 * Replace all entries in this collection.
+		 *
+		 * Diagnostics of multiple tuples of the same uri will be merged, e.g
+		 * `[[file1, [d1]], [file1, [d2]]]` is equivalent to `[[file1, [d1, d2]]]`.
+		 * If a diagnostics item is `undefined` as in `[file1, undefined]`
+		 * all previous but not subsequent diagnostics are removed.
+		 *
+		 * @param entries An array of tuples, like `[[file1, [d1, d2]], [file2, [d3, d4, d5]]]`, or `undefined`.
+		 */
+		set(entries: [Uri, Diagnostic[]][]): void;
+
+		/**
 		 * Remove all diagnostics from this collection that belong
 		 * to the provided `uri`. The same as `#set(uri, undefined)`.
 		 *
 		 * @param uri A resource identifier.
 		 */
 		delete(uri: Uri): void;
-
-		/**
-		 * Replace all entries in this collection.
-		 *
-		 * @param entries An array of tuples, like `[[file1, [d1, d2]], [file2, [d3, d4, d5]]]`, or `undefined`.
-		 */
-		set(entries: [Uri, Diagnostic[]][]): void;
 
 		/**
 		 * Remove all diagnostics from this collection. The same
@@ -2587,20 +2941,20 @@ declare namespace vscode {
 		/**
 		 * Reveal this channel in the UI.
 		 *
+		 * @param preserveFocus When `true` the channel will not take focus.
+		 */
+		show(preserveFocus?: boolean): void;
+
+		/**
+		 * Reveal this channel in the UI.
+		 *
 		 * @deprecated This method is **deprecated** and the overload with
-		 * just one parameter should be used (`show(preservceFocus?: boolean): void`).
+		 * just one parameter should be used (`show(preserveFocus?: boolean): void`).
 		 *
 		 * @param column This argument is **deprecated** and will be ignored.
 		 * @param preserveFocus When `true` the channel will not take focus.
 		 */
 		show(column?: ViewColumn, preserveFocus?: boolean): void;
-
-		/**
-		 * Reveal this channel in the UI.
-		 *
-		 * @param preserveFocus When `true` the channel will not take focus.
-		 */
-		show(preservceFocus?: boolean): void;
 
 		/**
 		 * Hide this channel from the UI.
@@ -2621,12 +2975,12 @@ declare namespace vscode {
 		/**
 		 * Aligned to the left side.
 		 */
-		Left,
+		Left = 1,
 
 		/**
 		 * Aligned to the right side.
 		 */
-		Right
+		Right = 2
 	}
 
 	/**
@@ -2689,6 +3043,54 @@ declare namespace vscode {
 		/**
 		 * Dispose and free associated resources. Call
 		 * [hide](#StatusBarItem.hide).
+		 */
+		dispose(): void;
+	}
+
+	/**
+	 * An individual terminal instance within the integrated terminal.
+	 */
+	export interface Terminal {
+
+		/**
+		 * The name of the terminal.
+		 *
+		 * @readonly
+		 */
+		name: string;
+
+		/**
+		 * The process ID of the shell process.
+		 *
+		 * @readonly
+		 */
+		processId: Thenable<number>;
+
+		/**
+		 * Send text to the terminal. The text is written to the stdin of the underlying pty process
+		 * (shell) of the terminal.
+		 *
+		 * @param text The text to send.
+		 * @param addNewLine Whether to add a new line to the text being sent, this is normally
+		 * required to run a command in the terminal. The character(s) added are \n or \r\n
+		 * depending on the platform. This defaults to `true`.
+		 */
+		sendText(text: string, addNewLine?: boolean): void;
+
+		/**
+		 * Show the terminal panel and reveal this terminal in the UI.
+		 *
+		 * @param preserveFocus When `true` the terminal will not take focus.
+		 */
+		show(preserveFocus?: boolean): void;
+
+		/**
+		 * Hide the terminal panel if this terminal is currently showing.
+		 */
+		hide(): void;
+
+		/**
+		 * Dispose and free associated resources.
 		 */
 		dispose(): void;
 	}
@@ -2761,13 +3163,13 @@ declare namespace vscode {
 
 		/**
 		 * A memento object that stores state in the context
-		 * of the currently opened [workspace](#workspace.path).
+		 * of the currently opened [workspace](#workspace.rootPath).
 		 */
 		workspaceState: Memento;
 
 		/**
 		 * A memento object that stores state independent
-		 * of the current opened [workspace](#workspace.path).
+		 * of the current opened [workspace](#workspace.rootPath).
 		 */
 		globalState: Memento;
 
@@ -2783,6 +3185,16 @@ declare namespace vscode {
 		 * @return The absolute path of the resource.
 		 */
 		asAbsolutePath(relativePath: string): string;
+
+		/**
+		 * An absolute file path of a workspace specific directory in which the extension
+		 * can store private state. The directory might not exist on disk and creation is
+		 * up to the extension. However, the parent directory is guaranteed to be existent.
+		 *
+		 * Use [`workspaceState`](ExtensionContext#workspaceState) or
+		 * [`globalState`](ExtensionContext#globalState) to store key value data.
+		 */
+		storagePath: string;
 	}
 
 	/**
@@ -2873,7 +3285,7 @@ declare namespace vscode {
 	 * ```json
 	 * {
 	 * "contributes": {
-	 * 		"commands": [{
+	 * 	"commands": [{
 	 * 		"command": "extension.sayHello",
 	 * 		"title": "Hello World"
 	 * 	}]
@@ -2965,6 +3377,12 @@ declare namespace vscode {
 		export const onDidChangeActiveTextEditor: Event<TextEditor>;
 
 		/**
+		 * An [event](#Event) which fires when the array of [visible editors](#window.visibleTextEditors)
+		 * has changed.
+		 */
+		export const onDidChangeVisibleTextEditors: Event<TextEditor[]>;
+
+		/**
 		 * An [event](#Event) which fires when the selection in an editor has changed.
 		 */
 		export const onDidChangeTextEditorSelection: Event<TextEditorSelectionChangeEvent>;
@@ -2978,6 +3396,11 @@ declare namespace vscode {
 		 * An [event](#Event) which fires when the view column of an editor has changed.
 		 */
 		export const onDidChangeTextEditorViewColumn: Event<TextEditorViewColumnChangeEvent>;
+
+		/**
+		 * An [event](#Event) which fires when a terminal is disposed.
+		 */
+		export const onDidCloseTerminal: Event<Terminal>;
 
 		/**
 		 * Show the given document in a text editor. A [column](#ViewColumn) can be provided
@@ -3069,18 +3492,20 @@ declare namespace vscode {
 		 *
 		 * @param items An array of strings, or a promise that resolves to an array of strings.
 		 * @param options Configures the behavior of the selection list.
+		 * @param token A token that can be used to signal cancellation.
 		 * @return A promise that resolves to the selection or undefined.
 		 */
-		export function showQuickPick(items: string[] | Thenable<string[]>, options?: QuickPickOptions): Thenable<string>;
+		export function showQuickPick(items: string[] | Thenable<string[]>, options?: QuickPickOptions, token?: CancellationToken): Thenable<string>;
 
 		/**
 		 * Shows a selection list.
 		 *
 		 * @param items An array of items, or a promise that resolves to an array of items.
 		 * @param options Configures the behavior of the selection list.
+		 * @param token A token that can be used to signal cancellation.
 		 * @return A promise that resolves to the selected item or undefined.
 		 */
-		export function showQuickPick<T extends QuickPickItem>(items: T[] | Thenable<T[]>, options?: QuickPickOptions): Thenable<T>;
+		export function showQuickPick<T extends QuickPickItem>(items: T[] | Thenable<T[]>, options?: QuickPickOptions, token?: CancellationToken): Thenable<T>;
 
 		/**
 		 * Opens an input box to ask the user for input.
@@ -3090,9 +3515,10 @@ declare namespace vscode {
 		 * anything but dismissed the input box with OK.
 		 *
 		 * @param options Configures the behavior of the input box.
+		 * @param token A token that can be used to signal cancellation.
 		 * @return A promise that resolves to a string the user provided or to `undefined` in case of dismissal.
 		 */
-		export function showInputBox(options?: InputBoxOptions): Thenable<string>;
+		export function showInputBox(options?: InputBoxOptions, token?: CancellationToken): Thenable<string>;
 
 		/**
 		 * Create a new [output channel](#OutputChannel) with the given name.
@@ -3138,6 +3564,16 @@ declare namespace vscode {
 		 * @return A new status bar item.
 		 */
 		export function createStatusBarItem(alignment?: StatusBarAlignment, priority?: number): StatusBarItem;
+
+		/**
+		 * Creates a [Terminal](#Terminal).
+		 *
+		 * @param name Optional human-readable string which will be used to represent the terminal in the UI.
+		 * @param shellPath Optional path to a custom shell executable to be used in the terminal.
+		 * @param shellArgs Optional args for the custom shell executable, this does not work on Windows (see #8429)
+		 * @return A new Terminal.
+		 */
+		export function createTerminal(name?: string, shellPath?: string, shellArgs?: string[]): Terminal;
 	}
 
 	/**
@@ -3175,12 +3611,85 @@ declare namespace vscode {
 	}
 
 	/**
+	 * Represents reasons why a text document is saved.
+	 */
+	export enum TextDocumentSaveReason {
+
+		/**
+		 * Manually triggered, e.g. by the user pressing save, by starting debugging,
+		 * or by an API call.
+		 */
+		Manual = 1,
+
+		/**
+		 * Automatic after a delay.
+		 */
+		AfterDelay = 2,
+
+		/**
+		 * When the editor lost focus.
+		 */
+		FocusOut = 3
+	}
+
+	/**
+	 * An event that is fired when a [document](#TextDocument) will be saved.
+	 *
+	 * To make modifications to the document before it is being saved, call the
+	 * [`waitUntil`](#TextDocumentWillSaveEvent.waitUntil)-function with a thenable
+	 * that resolves to an array of [text edits](#TextEdit).
+	 */
+	export interface TextDocumentWillSaveEvent {
+
+		/**
+		 * The document that will be saved.
+		 */
+		document: TextDocument;
+
+		/**
+		 * The reason why save was triggered.
+		 */
+		reason: TextDocumentSaveReason;
+
+		/**
+		 * Allows to pause the event loop and to apply [pre-save-edits](#TextEdit).
+		 * Edits of subsequent calls to this function will be applied in order. The
+		 * edits will be *ignored* if concurrent modifications of the document happened.
+		 *
+		 * *Note:* This function can only be called during event dispatch and not
+		 * in an asynchronous manner:
+		 *
+		 * ```ts
+		 * workspace.onWillSaveTextDocument(event => {
+			// async, will *throw* an error
+		 	setTimeout(() => event.waitUntil(promise));
+
+		 	// sync, OK
+		 *	event.waitUntil(promise);
+		 * })
+		 * ```
+		 *
+		 * @param thenable A thenable that resolves to [pre-save-edits](#TextEdit).
+		 */
+		waitUntil(thenable: Thenable<TextEdit[]>): void;
+
+		/**
+		 * Allows to pause the event loop until the provided thenable resolved.
+		 *
+		 * *Note:* This function can only be called during event dispatch.
+		 *
+		 * @param thenable A thenable that delays saving.
+		 */
+		waitUntil(thenable: Thenable<any>): void;
+	}
+
+	/**
 	 * Namespace for dealing with the current workspace. A workspace is the representation
 	 * of the folder that has been opened. There is no workspace when just a file but not a
 	 * folder has been opened.
 	 *
 	 * The workspace offers support for [listening](#workspace.createFileSystemWatcher) to fs
-	 * events and for [finding](#workspace#findFiles) files. Both perform well and run _outside_
+	 * events and for [finding](#workspace.findFiles) files. Both perform well and run _outside_
 	 * the editor-process so that they should be always used instead of nodejs-equivalents.
 	 */
 	export namespace workspace {
@@ -3310,6 +3819,21 @@ declare namespace vscode {
 		export const onDidChangeTextDocument: Event<TextDocumentChangeEvent>;
 
 		/**
+		 * An event that is emitted when a [text document](#TextDocument) will be saved to disk.
+		 *
+		 * *Note 1:* Subscribers can delay saving by registering asynchronous work. For the sake of data integrity the editor
+		 * might save without firing this event. For instance when shutting down with dirty files.
+		 *
+		 * *Note 2:* Subscribers are called sequentially and they can [delay](#TextDocumentWillSaveEvent.waitUntil) saving
+		 * by registering asynchronous work. Protection against misbehaving listeners is implemented as such:
+		 *  * there is an overall time budget that all listeners share and if that is exhausted no further listener is called
+		 *  * listeners that take a long time or produce errors frequently will not be called anymore
+		 *
+		 * The current thresholds are 1.5 seconds as overall time budget and a listener can misbehave 3 times before being ignored.
+		 */
+		export const onWillSaveTextDocument: Event<TextDocumentWillSaveEvent>;
+
+		/**
 		 * An event that is emitted when a [text document](#TextDocument) is saved to disk.
 		 */
 		export const onDidSaveTextDocument: Event<TextDocument>;
@@ -3319,8 +3843,7 @@ declare namespace vscode {
 		 *
 		 * When a section-identifier is provided only that part of the configuration
 		 * is returned. Dots in the section-identifier are interpreted as child-access,
-		 * like `{ myExt: { setting: { doIt: true }}}` and `getConfiguration('myExt.setting.doIt') === true`.
-		 *
+		 * like `{ myExt: { setting: { doIt: true }}}` and `getConfiguration('myExt.setting').get('doIt') === true`.
 		 *
 		 * @param section A dot-separated identifier.
 		 * @return The full workspace configuration or a subset.
@@ -3380,12 +3903,12 @@ declare namespace vscode {
 		 * 	(2.1) When both are equal score is `10`,
 		 * 	(2.2) When the selector is `*` score is `5`,
 		 * 	(2.3) Else score is `0`.
-		 * (3) When selector is a [filter](#DocumentFilter) every property must score higher `0`. Iff the score is the sum of the following:
+		 * (3) When selector is a [filter](#DocumentFilter) return the maximum individual score given that each score is `>0`.
 		 *	(3.1) When [language](#DocumentFilter.language) is set apply rules from #2, when `0` the total score is `0`.
-		 *	(3.2) When [scheme](#Document.scheme) is set and equals the [uri](#TextDocument.uri)-scheme add `10` to the score, else the total score is `0`.
-		 *	(3.3) When [pattern](#Document.pattern) is set
-		 * 		(3.3.1) pattern eqauls the [uri](#TextDocument.uri)-fsPath add `10` to the score,
-		 *		(3.3.1) if the pattern matches as glob-pattern add `5` to the score,
+		 *	(3.2) When [scheme](#DocumentFilter.scheme) is set and equals the [uri](#TextDocument.uri)-scheme score with `10`, else the total score is `0`.
+		 *	(3.3) When [pattern](#DocumentFilter.pattern) is set
+		 * 		(3.3.1) pattern equals the [uri](#TextDocument.uri)-fsPath score with `10`,
+		 *		(3.3.1) if the pattern matches as glob-pattern score with `5`,
 		 *		(3.3.1) the total score is `0`
 		 * ```
 		 *
@@ -3500,9 +4023,9 @@ declare namespace vscode {
 		/**
 		 * Register a workspace symbol provider.
 		 *
-		 * Multiple providers can be registered for a language. In that case providers are asked in
-		 * parallel and the results are merged. A failing provider (rejected promise or exception) will
-		 * not cause a failure of the whole operation.
+		 * Multiple providers can be registered. In that case providers are asked in parallel and
+		 * the results are merged. A failing provider (rejected promise or exception) will not cause
+		 * a failure of the whole operation.
 		 *
 		 * @param provider A workspace symbol provider.
 		 * @return A [disposable](#Disposable) that unregisters this provider when being disposed.
@@ -3551,6 +4074,10 @@ declare namespace vscode {
 		/**
 		 * Register a formatting provider for a document range.
 		 *
+		 * *Note:* A document range provider is also a [document formatter](#DocumentFormattingEditProvider)
+		 * which means there is no need to [register](registerDocumentFormattingEditProvider) a document
+		 * formatter when also registering a range provider.
+		 *
 		 * Multiple providers can be registered for a language. In that case providers are sorted
 		 * by their [score](#languages.match) and the best-matching provider is used. Failure
 		 * of the selected provider will cause a failure of the whole operation.
@@ -3580,8 +4107,8 @@ declare namespace vscode {
 		 * Register a signature help provider.
 		 *
 		 * Multiple providers can be registered for a language. In that case providers are sorted
-		 * by their [score](#languages.match) and the best-matching provider is used. Failure
-		 * of the selected provider will cause a failure of the whole operation.
+		 * by their [score](#languages.match) and called sequentially until a provider returns a
+		 * valid result.
 		 *
 		 * @param selector A selector that defines the documents this provider is applicable to.
 		 * @param provider A signature help provider.
@@ -3589,6 +4116,19 @@ declare namespace vscode {
 		 * @return A [disposable](#Disposable) that unregisters this provider when being disposed.
 		 */
 		export function registerSignatureHelpProvider(selector: DocumentSelector, provider: SignatureHelpProvider, ...triggerCharacters: string[]): Disposable;
+
+		/**
+		 * Register a document link provider.
+		 *
+		 * Multiple providers can be registered for a language. In that case providers are asked in
+		 * parallel and the results are merged. A failing provider (rejected promise or exception) will
+		 * not cause a failure of the whole operation.
+		 *
+		 * @param selector A selector that defines the documents this provider is applicable to.
+		 * @param provider A document link provider.
+		 * @return A [disposable](#Disposable) that unregisters this provider when being disposed.
+		 */
+		export function registerDocumentLinkProvider(selector: DocumentSelector, provider: DocumentLinkProvider): Disposable;
 
 		/**
 		 * Set a [language configuration](#LanguageConfiguration) for a language.
@@ -3657,115 +4197,19 @@ declare namespace vscode {
 	}
 }
 
-// TS 1.6 & node_module
-// export = vscode;
-
-// when used for JS*
-// !!! DO NOT MODIFY ABOVE COMMENT ("when used for JS*") IT IS BEING USED TO DETECT JS* ONLY CHANGES !!!
-declare module 'vscode' {
-	export = vscode;
-}
-
 /**
  * Thenable is a common denominator between ES6 promises, Q, jquery.Deferred, WinJS.Promise,
  * and others. This API makes no assumption about what promise libary is being used which
  * enables reusing existing code without migrating to a specific promise implementation. Still,
  * we recommend the use of native promises which are available in VS Code.
  */
-interface Thenable<R> {
+interface Thenable<T> {
 	/**
 	* Attaches callbacks for the resolution and/or rejection of the Promise.
 	* @param onfulfilled The callback to execute when the Promise is resolved.
 	* @param onrejected The callback to execute when the Promise is rejected.
 	* @returns A Promise for the completion of which ever callback is executed.
 	*/
-	then<TResult>(onfulfilled?: (value: R) => TResult | Thenable<TResult>, onrejected?: (reason: any) => TResult | Thenable<TResult>): Thenable<TResult>;
-	then<TResult>(onfulfilled?: (value: R) => TResult | Thenable<TResult>, onrejected?: (reason: any) => void): Thenable<TResult>;
+	then<TResult>(onfulfilled?: (value: T) => TResult | Thenable<TResult>, onrejected?: (reason: any) => TResult | Thenable<TResult>): Thenable<TResult>;
+	then<TResult>(onfulfilled?: (value: T) => TResult | Thenable<TResult>, onrejected?: (reason: any) => void): Thenable<TResult>;
 }
-
-// ---- ES6 promise ------------------------------------------------------
-
-/**
- * Represents the completion of an asynchronous operation.
- */
-interface Promise<T> extends Thenable<T> {
-	/**
-	* Attaches callbacks for the resolution and/or rejection of the Promise.
-	* @param onfulfilled The callback to execute when the Promise is resolved.
-	* @param onrejected The callback to execute when the Promise is rejected.
-	* @returns A Promise for the completion of which ever callback is executed.
-	*/
-	then<TResult>(onfulfilled?: (value: T) => TResult | Thenable<TResult>, onrejected?: (reason: any) => TResult | Thenable<TResult>): Promise<TResult>;
-	then<TResult>(onfulfilled?: (value: T) => TResult | Thenable<TResult>, onrejected?: (reason: any) => void): Promise<TResult>;
-
-	/**
-	 * Attaches a callback for only the rejection of the Promise.
-	 * @param onrejected The callback to execute when the Promise is rejected.
-	 * @returns A Promise for the completion of the callback.
-	 */
-	catch(onrejected?: (reason: any) => T | Thenable<T>): Promise<T>;
-
-	// [Symbol.toStringTag]: string;
-}
-
-interface PromiseConstructor {
-	// /**
-	//   * A reference to the prototype.
-	//   */
-	// prototype: Promise<any>;
-
-	/**
-	 * Creates a new Promise.
-	 * @param executor A callback used to initialize the promise. This callback is passed two arguments:
-	 * a resolve callback used to resolve the promise with a value or the result of another promise,
-	 * and a reject callback used to reject the promise with a provided reason or error.
-	 */
-	new <T>(executor: (resolve: (value?: T | Thenable<T>) => void, reject: (reason?: any) => void) => void): Promise<T>;
-
-	/**
-	 * Creates a Promise that is resolved with an array of results when all of the provided Promises
-	 * resolve, or rejected when any Promise is rejected.
-	 * @param values An array of Promises.
-	 * @returns A new Promise.
-	 */
-	all<T>(values: Array<T | Thenable<T>>): Promise<T[]>;
-
-	/**
-	 * Creates a Promise that is resolved or rejected when any of the provided Promises are resolved
-	 * or rejected.
-	 * @param values An array of Promises.
-	 * @returns A new Promise.
-	 */
-	race<T>(values: Array<T | Thenable<T>>): Promise<T>;
-
-	/**
-	 * Creates a new rejected promise for the provided reason.
-	 * @param reason The reason the promise was rejected.
-	 * @returns A new rejected Promise.
-	 */
-	reject(reason: any): Promise<void>;
-
-	/**
-	 * Creates a new rejected promise for the provided reason.
-	 * @param reason The reason the promise was rejected.
-	 * @returns A new rejected Promise.
-	 */
-	reject<T>(reason: any): Promise<T>;
-
-	/**
-	 * Creates a new resolved promise for the provided value.
-	 * @param value A promise.
-	 * @returns A promise whose internal state matches the provided promise.
-	 */
-	resolve<T>(value: T | Thenable<T>): Promise<T>;
-
-	/**
-	 * Creates a new resolved promise.
-	 * @returns A resolved promise.
-	 */
-	resolve(): Promise<void>;
-
-	// [Symbol.species]: Function;
-}
-
-declare var Promise: PromiseConstructor;

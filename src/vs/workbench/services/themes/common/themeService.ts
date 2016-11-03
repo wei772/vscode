@@ -4,18 +4,22 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {createDecorator, ServiceIdentifier} from 'vs/platform/instantiation/common/instantiation';
-import {TPromise} from 'vs/base/common/winjs.base';
+import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
+import { TPromise } from 'vs/base/common/winjs.base';
 import Event from 'vs/base/common/event';
 
 export let IThemeService = createDecorator<IThemeService>('themeService');
 
 export interface IThemeService {
-	serviceId: ServiceIdentifier<any>;
-	setTheme(themeId: string, broadcastToAllWindows: boolean): TPromise<boolean>;
-	getTheme(): string;
-	getThemes(): TPromise<IThemeData[]>;
-	onDidThemeChange: Event<string>;
+	_serviceBrand: any;
+	setColorTheme(themeId: string, broadcastToAllWindows: boolean): TPromise<boolean>;
+	getColorTheme(): string;
+	getColorThemes(): TPromise<IThemeData[]>;
+	onDidColorThemeChange: Event<string>;
+
+	setFileIconTheme(iconThemeId: string, broadcastToAllWindows: boolean): TPromise<boolean>;
+	getFileIconTheme(): string;
+	getFileIconThemes(): TPromise<IThemeData[]>;
 }
 
 export interface IThemeData {
@@ -23,5 +27,19 @@ export interface IThemeData {
 	label: string;
 	description?: string;
 	path: string;
-	styleSheetContent?: string;
+}
+
+export interface IThemeDocument {
+	name: string;
+	include: string;
+	settings: IThemeSetting[];
+}
+
+export interface IThemeSetting {
+	name?: string;
+	scope?: string[];
+	settings: IThemeSettingStyle[];
+}
+
+export interface IThemeSettingStyle {
 }

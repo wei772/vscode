@@ -5,14 +5,14 @@
 'use strict';
 
 import * as assert from 'assert';
-import {ShiftCommand} from 'vs/editor/common/commands/shiftCommand';
-import {Selection} from 'vs/editor/common/core/selection';
-import {IIdentifiedSingleEditOperation} from 'vs/editor/common/editorCommon';
-import {IRichEditSupport, IndentAction} from 'vs/editor/common/modes';
-import {RichEditSupport} from 'vs/editor/common/modes/supports/richEditSupport';
-import {createSingleEditOp, getEditOperation, testCommand} from 'vs/editor/test/common/commands/commandTestUtils';
-import {withEditorModel} from 'vs/editor/test/common/editorTestUtils';
-import {MockMode} from 'vs/editor/test/common/mocks/mockMode';
+import { ShiftCommand } from 'vs/editor/common/commands/shiftCommand';
+import { Selection } from 'vs/editor/common/core/selection';
+import { IIdentifiedSingleEditOperation } from 'vs/editor/common/editorCommon';
+import { IndentAction } from 'vs/editor/common/modes/languageConfiguration';
+import { LanguageConfigurationRegistry } from 'vs/editor/common/modes/languageConfigurationRegistry';
+import { createSingleEditOp, getEditOperation, testCommand } from 'vs/editor/test/common/commands/commandTestUtils';
+import { withEditorModel } from 'vs/editor/test/common/editorTestUtils';
+import { MockMode } from 'vs/editor/test/common/mocks/mockMode';
 
 function testShiftCommand(lines: string[], selection: Selection, expectedLines: string[], expectedSelection: Selection): void {
 	testCommand(lines, null, selection, (sel) => new ShiftCommand(sel, {
@@ -32,11 +32,9 @@ function testUnshiftCommand(lines: string[], selection: Selection, expectedLines
 
 class DocBlockCommentMode extends MockMode {
 
-	public richEditSupport: IRichEditSupport;
-
 	constructor() {
 		super();
-		this.richEditSupport = new RichEditSupport(this.getId(), null, {
+		LanguageConfigurationRegistry.register(this.getId(), {
 			brackets: [
 				['(', ')'],
 				['{', '}'],
@@ -64,6 +62,11 @@ class DocBlockCommentMode extends MockMode {
 					// e.g.  */|
 					beforeText: /^(\t|(\ \ ))*\ \*\/\s*$/,
 					action: { indentAction: IndentAction.None, removeText: 1 }
+				},
+				{
+					// e.g.  *-----*/|
+					beforeText: /^(\t|(\ \ ))*\ \*[^/]*\*\/\s*$/,
+					action: { indentAction: IndentAction.None, removeText: 1 }
 				}
 			]
 		});
@@ -71,7 +74,7 @@ class DocBlockCommentMode extends MockMode {
 }
 
 function testShiftCommandInDocBlockCommentMode(lines: string[], selection: Selection, expectedLines: string[], expectedSelection: Selection): void {
-	testCommand(lines, new DocBlockCommentMode(), selection, (sel) => new ShiftCommand(sel, {
+	testCommand(lines, new DocBlockCommentMode().getId(), selection, (sel) => new ShiftCommand(sel, {
 		isUnshift: false,
 		tabSize: 4,
 		oneIndent: '\t'
@@ -79,7 +82,7 @@ function testShiftCommandInDocBlockCommentMode(lines: string[], selection: Selec
 }
 
 function testUnshiftCommandInDocBlockCommentMode(lines: string[], selection: Selection, expectedLines: string[], expectedSelection: Selection): void {
-	testCommand(lines, new DocBlockCommentMode(), selection, (sel) => new ShiftCommand(sel, {
+	testCommand(lines, new DocBlockCommentMode().getId(), selection, (sel) => new ShiftCommand(sel, {
 		isUnshift: true,
 		tabSize: 4,
 		oneIndent: '\t'
@@ -534,7 +537,7 @@ suite('Editor Commands - ShiftCommand', () => {
 				' */',
 				'function hello() {}'
 			],
-			new Selection(1,1,5,20),
+			new Selection(1, 1, 5, 20),
 			[
 				'',
 				'\t/**',
@@ -542,7 +545,7 @@ suite('Editor Commands - ShiftCommand', () => {
 				'\t */',
 				'\tfunction hello() {}'
 			],
-			new Selection(1,1,5,21)
+			new Selection(1, 1, 5, 21)
 		);
 
 		testUnshiftCommandInDocBlockCommentMode(
@@ -553,7 +556,7 @@ suite('Editor Commands - ShiftCommand', () => {
 				' */',
 				'function hello() {}'
 			],
-			new Selection(1,1,5,20),
+			new Selection(1, 1, 5, 20),
 			[
 				'',
 				'/**',
@@ -561,7 +564,7 @@ suite('Editor Commands - ShiftCommand', () => {
 				' */',
 				'function hello() {}'
 			],
-			new Selection(1,1,5,20)
+			new Selection(1, 1, 5, 20)
 		);
 
 		testUnshiftCommandInDocBlockCommentMode(
@@ -572,7 +575,7 @@ suite('Editor Commands - ShiftCommand', () => {
 				'\t */',
 				'\tfunction hello() {}'
 			],
-			new Selection(1,1,5,21),
+			new Selection(1, 1, 5, 21),
 			[
 				'',
 				'/**',
@@ -580,7 +583,7 @@ suite('Editor Commands - ShiftCommand', () => {
 				' */',
 				'function hello() {}'
 			],
-			new Selection(1,1,5,20)
+			new Selection(1, 1, 5, 20)
 		);
 	});
 
@@ -595,7 +598,7 @@ suite('Editor Commands - ShiftCommand', () => {
 				' */',
 				'var foo = 0;'
 			],
-			new Selection(1,1,7,13),
+			new Selection(1, 1, 7, 13),
 			[
 				'',
 				'\t/**',
@@ -605,13 +608,13 @@ suite('Editor Commands - ShiftCommand', () => {
 				'\t */',
 				'\tvar foo = 0;'
 			],
-			new Selection(1,1,7,14)
+			new Selection(1, 1, 7, 14)
 		);
 	});
 
 	test('bug #16815:Shift+Tab doesn\'t go back to tabstop', () => {
 
-		var repeatStr = (str:string, cnt:number): string => {
+		var repeatStr = (str: string, cnt: number): string => {
 			var r = '';
 			for (var i = 0; i < cnt; i++) {
 				r += str;
@@ -619,7 +622,7 @@ suite('Editor Commands - ShiftCommand', () => {
 			return r;
 		};
 
-		var testOutdent = (tabSize: number, oneIndent: string, lineText:string, expectedIndents:number) => {
+		var testOutdent = (tabSize: number, oneIndent: string, lineText: string, expectedIndents: number) => {
 			var expectedIndent = repeatStr(oneIndent, expectedIndents);
 			if (lineText.length > 0) {
 				_assertUnshiftCommand(tabSize, oneIndent, [lineText + 'aaa'], [createSingleEditOp(expectedIndent, 1, 1, 1, lineText.length + 1)]);
@@ -628,12 +631,12 @@ suite('Editor Commands - ShiftCommand', () => {
 			}
 		};
 
-		var testIndent = (tabSize: number, oneIndent: string, lineText:string, expectedIndents:number) => {
+		var testIndent = (tabSize: number, oneIndent: string, lineText: string, expectedIndents: number) => {
 			var expectedIndent = repeatStr(oneIndent, expectedIndents);
 			_assertShiftCommand(tabSize, oneIndent, [lineText + 'aaa'], [createSingleEditOp(expectedIndent, 1, 1, 1, lineText.length + 1)]);
 		};
 
-		var testIndentation = (tabSize: number, lineText:string, expectedOnOutdent:number, expectedOnIndent:number) => {
+		var testIndentation = (tabSize: number, lineText: string, expectedOnOutdent: number, expectedOnIndent: number) => {
 			var spaceIndent = '';
 			for (var i = 0; i < tabSize; i++) {
 				spaceIndent += ' ';
@@ -707,9 +710,9 @@ suite('Editor Commands - ShiftCommand', () => {
 
 	});
 
-	function _assertUnshiftCommand(tabSize:number, oneIndent:string, text:string[], expected:IIdentifiedSingleEditOperation[]): void {
+	function _assertUnshiftCommand(tabSize: number, oneIndent: string, text: string[], expected: IIdentifiedSingleEditOperation[]): void {
 		return withEditorModel(text, (model) => {
-			var op = new ShiftCommand(new Selection(1,1,text.length+1,1), {
+			var op = new ShiftCommand(new Selection(1, 1, text.length + 1, 1), {
 				isUnshift: true,
 				tabSize: tabSize,
 				oneIndent: oneIndent
@@ -719,9 +722,9 @@ suite('Editor Commands - ShiftCommand', () => {
 		});
 	}
 
-	function _assertShiftCommand(tabSize:number, oneIndent:string, text:string[], expected:IIdentifiedSingleEditOperation[]): void {
+	function _assertShiftCommand(tabSize: number, oneIndent: string, text: string[], expected: IIdentifiedSingleEditOperation[]): void {
 		return withEditorModel(text, (model) => {
-			var op = new ShiftCommand(new Selection(1,1,text.length+1,1), {
+			var op = new ShiftCommand(new Selection(1, 1, text.length + 1, 1), {
 				isUnshift: false,
 				tabSize: tabSize,
 				oneIndent: oneIndent

@@ -5,41 +5,56 @@
 
 'use strict';
 
-import {illegalArgument, isPromiseCanceledError, onUnexpectedError} from 'vs/base/common/errors';
+import { illegalArgument, onUnexpectedError } from 'vs/base/common/errors';
 import URI from 'vs/base/common/uri';
-import {TPromise} from 'vs/base/common/winjs.base';
-import {IModel} from 'vs/editor/common/editorCommon';
-import {CommonEditorRegistry} from 'vs/editor/common/editorCommonExtensions';
-import {CodeLensRegistry, ICodeLensSupport, ICodeLensSymbol} from 'vs/editor/common/modes';
-import {IModelService} from 'vs/editor/common/services/modelService';
+import { TPromise } from 'vs/base/common/winjs.base';
+import { IModel } from 'vs/editor/common/editorCommon';
+import { CommonEditorRegistry } from 'vs/editor/common/editorCommonExtensions';
+import { CodeLensProviderRegistry, CodeLensProvider, ICodeLensSymbol } from 'vs/editor/common/modes';
+import { IModelService } from 'vs/editor/common/services/modelService';
+import { asWinJsPromise } from 'vs/base/common/async';
 
 export interface ICodeLensData {
 	symbol: ICodeLensSymbol;
-	support: ICodeLensSupport;
+	provider: CodeLensProvider;
 }
 
 export function getCodeLensData(model: IModel): TPromise<ICodeLensData[]> {
 
 	const symbols: ICodeLensData[] = [];
-	const promises = CodeLensRegistry.all(model).map(support => {
-		return support.findCodeLensSymbols(model.getAssociatedResource()).then(result => {
-			if (!Array.isArray(result)) {
-				return;
-			}
+	const provider = CodeLensProviderRegistry.ordered(model);
+
+	const promises = provider.map(provider => asWinJsPromise(token => provider.provideCodeLenses(model, token)).then(result => {
+		if (Array.isArray(result)) {
 			for (let symbol of result) {
-				symbols.push({ symbol, support });
+				symbols.push({ symbol, provider });
 			}
-		}, err => {
-			if (!isPromiseCanceledError(err)) {
-				onUnexpectedError(err);
+		}
+	}, onUnexpectedError));
+
+	return TPromise.join(promises).then(() => {
+		return symbols.sort((a, b) => {
+			// sort by lineNumber, provider-rank, and column
+			if (a.symbol.range.startLineNumber < b.symbol.range.startLineNumber) {
+				return -1;
+			} else if (a.symbol.range.startLineNumber > b.symbol.range.startLineNumber) {
+				return 1;
+			} else if (provider.indexOf(a.provider) < provider.indexOf(b.provider)) {
+				return -1;
+			} else if (provider.indexOf(a.provider) > provider.indexOf(b.provider)) {
+				return 1;
+			} else if (a.symbol.range.startColumn < b.symbol.range.startColumn) {
+				return -1;
+			} else if (a.symbol.range.startColumn > b.symbol.range.startColumn) {
+				return 1;
+			} else {
+				return 0;
 			}
 		});
 	});
-
-	return TPromise.join(promises).then(() => symbols);
 }
 
-CommonEditorRegistry.registerLanguageCommand('_executeCodeLensProvider', function(accessor, args) {
+CommonEditorRegistry.registerLanguageCommand('_executeCodeLensProvider', function (accessor, args) {
 
 	const {resource} = args;
 	if (!(resource instanceof URI)) {

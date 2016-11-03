@@ -5,12 +5,13 @@
 
 'use strict';
 
-import {TPromise} from 'vs/base/common/winjs.base';
-import {Client} from 'vs/base/parts/ipc/node/ipc.cp';
+import { TPromise } from 'vs/base/common/winjs.base';
+import { getNextTickChannel } from 'vs/base/parts/ipc/common/ipc';
+import { Client } from 'vs/base/parts/ipc/node/ipc.cp';
 import uri from 'vs/base/common/uri';
-import {EventType} from 'vs/platform/files/common/files';
-import {toFileChangesEvent, IRawFileChange} from 'vs/workbench/services/files/node/watcher/common';
-import {IEventService} from 'vs/platform/event/common/event';
+import { EventType } from 'vs/platform/files/common/files';
+import { toFileChangesEvent, IRawFileChange } from 'vs/workbench/services/files/node/watcher/common';
+import { IEventService } from 'vs/platform/event/common/event';
 import { IWatcherChannel, WatcherChannelClient } from 'vs/workbench/services/files/node/watcher/unix/watcherIpc';
 
 export class FileWatcher {
@@ -24,18 +25,20 @@ export class FileWatcher {
 		private ignored: string[],
 		private eventEmitter: IEventService,
 		private errorLogger: (msg: string) => void,
-		private verboseLogging: boolean)
-	{
+		private verboseLogging: boolean
+	) {
 		this.isDisposed = false;
 		this.restartCounter = 0;
 	}
 
 	public startWatching(): () => void {
+		const args = ['--type=watcherService'];
+
 		const client = new Client(
 			uri.parse(require.toUrl('bootstrap')).fsPath,
 			{
 				serverName: 'Watcher',
-				args: ['--type=watcherService'],
+				args,
 				env: {
 					AMD_ENTRYPOINT: 'vs/workbench/services/files/node/watcher/unix/watcherApp',
 					PIPE_LOGGING: 'true',
@@ -44,7 +47,7 @@ export class FileWatcher {
 			}
 		);
 
-		const channel = client.getChannel<IWatcherChannel>('watcher');
+		const channel = getNextTickChannel(client.getChannel<IWatcherChannel>('watcher'));
 		const service = new WatcherChannelClient(channel);
 
 		// Start watching

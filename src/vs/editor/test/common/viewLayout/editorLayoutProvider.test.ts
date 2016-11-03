@@ -5,12 +5,12 @@
 'use strict';
 
 import * as assert from 'assert';
-import {IEditorLayoutInfo} from 'vs/editor/common/editorCommon';
-import {EditorLayoutProvider, IEditorLayoutProviderOpts} from 'vs/editor/common/viewLayout/editorLayoutProvider';
+import { EditorLayoutInfo, OverviewRulerPosition } from 'vs/editor/common/editorCommon';
+import { EditorLayoutProvider, IEditorLayoutProviderOpts } from 'vs/editor/common/viewLayout/editorLayoutProvider';
 
 suite('Editor ViewLayout - EditorLayoutProvider', () => {
 
-	function doTest(input:IEditorLayoutProviderOpts, expected:IEditorLayoutInfo): void {
+	function doTest(input: IEditorLayoutProviderOpts, expected: EditorLayoutInfo): void {
 		let actual = EditorLayoutProvider.compute(input);
 		assert.deepEqual(actual, expected);
 	}
@@ -25,41 +25,41 @@ suite('Editor ViewLayout - EditorLayoutProvider', () => {
 			lineNumbersMinChars: 0,
 			lineDecorationsWidth: 10,
 			maxDigitWidth: 10,
-			lineCount: 1,
+			maxLineNumber: 1,
 			verticalScrollbarWidth: 0,
 			horizontalScrollbarHeight: 0,
 			scrollbarArrowSize: 0,
 			verticalScrollbarHasArrows: false
-		}, {
-			width:1000,
-			height:800,
+		}, new EditorLayoutInfo({
+			width: 1000,
+			height: 800,
 
-			glyphMarginLeft:0,
+			glyphMarginLeft: 0,
 			glyphMarginWidth: 0,
-			glyphMarginHeight:800,
+			glyphMarginHeight: 800,
 
-			lineNumbersLeft:0,
-			lineNumbersWidth:0,
-			lineNumbersHeight:800,
+			lineNumbersLeft: 0,
+			lineNumbersWidth: 0,
+			lineNumbersHeight: 800,
 
-			decorationsLeft:0,
-			decorationsWidth:10,
-			decorationsHeight:800,
+			decorationsLeft: 0,
+			decorationsWidth: 10,
+			decorationsHeight: 800,
 
-			contentLeft:10,
-			contentWidth:990,
-			contentHeight:800,
+			contentLeft: 10,
+			contentWidth: 990,
+			contentHeight: 800,
 
 			verticalScrollbarWidth: 0,
 			horizontalScrollbarHeight: 0,
 
-			overviewRuler: {
+			overviewRuler: new OverviewRulerPosition({
 				top: 0,
 				width: 0,
 				height: 800,
 				right: 0
-			}
-		});
+			})
+		}));
 	});
 
 	test('EditorLayoutProvider 1.1', () => {
@@ -72,41 +72,41 @@ suite('Editor ViewLayout - EditorLayoutProvider', () => {
 			lineNumbersMinChars: 0,
 			lineDecorationsWidth: 10,
 			maxDigitWidth: 10,
-			lineCount: 1,
+			maxLineNumber: 1,
 			verticalScrollbarWidth: 11,
 			horizontalScrollbarHeight: 12,
 			scrollbarArrowSize: 13,
 			verticalScrollbarHasArrows: true
-		}, {
-			width:1000,
-			height:800,
+		}, new EditorLayoutInfo({
+			width: 1000,
+			height: 800,
 
-			glyphMarginLeft:0,
+			glyphMarginLeft: 0,
 			glyphMarginWidth: 0,
-			glyphMarginHeight:800,
+			glyphMarginHeight: 800,
 
-			lineNumbersLeft:0,
-			lineNumbersWidth:0,
-			lineNumbersHeight:800,
+			lineNumbersLeft: 0,
+			lineNumbersWidth: 0,
+			lineNumbersHeight: 800,
 
-			decorationsLeft:0,
-			decorationsWidth:10,
-			decorationsHeight:800,
+			decorationsLeft: 0,
+			decorationsWidth: 10,
+			decorationsHeight: 800,
 
-			contentLeft:10,
-			contentWidth:990,
-			contentHeight:800,
+			contentLeft: 10,
+			contentWidth: 990,
+			contentHeight: 800,
 
 			verticalScrollbarWidth: 11,
 			horizontalScrollbarHeight: 12,
 
-			overviewRuler: {
+			overviewRuler: new OverviewRulerPosition({
 				top: 13,
 				width: 11,
 				height: (800 - 2 * 13),
 				right: 0
-			}
-		});
+			})
+		}));
 	});
 
 	test('EditorLayoutProvider 2', () => {
@@ -119,41 +119,41 @@ suite('Editor ViewLayout - EditorLayoutProvider', () => {
 			lineNumbersMinChars: 0,
 			lineDecorationsWidth: 10,
 			maxDigitWidth: 10,
-			lineCount: 1,
+			maxLineNumber: 1,
 			verticalScrollbarWidth: 0,
 			horizontalScrollbarHeight: 0,
 			scrollbarArrowSize: 0,
 			verticalScrollbarHasArrows: false
-		}, {
-			width:900,
-			height:800,
+		}, new EditorLayoutInfo({
+			width: 900,
+			height: 800,
 
-			glyphMarginLeft:0,
+			glyphMarginLeft: 0,
 			glyphMarginWidth: 0,
-			glyphMarginHeight:800,
+			glyphMarginHeight: 800,
 
-			lineNumbersLeft:0,
-			lineNumbersWidth:0,
-			lineNumbersHeight:800,
+			lineNumbersLeft: 0,
+			lineNumbersWidth: 0,
+			lineNumbersHeight: 800,
 
-			decorationsLeft:0,
-			decorationsWidth:10,
-			decorationsHeight:800,
+			decorationsLeft: 0,
+			decorationsWidth: 10,
+			decorationsHeight: 800,
 
-			contentLeft:10,
-			contentWidth:890,
-			contentHeight:800,
+			contentLeft: 10,
+			contentWidth: 890,
+			contentHeight: 800,
 
 			verticalScrollbarWidth: 0,
 			horizontalScrollbarHeight: 0,
 
-			overviewRuler: {
+			overviewRuler: new OverviewRulerPosition({
 				top: 0,
 				width: 0,
 				height: 800,
 				right: 0
-			}
-		});
+			})
+		}));
 	});
 
 	test('EditorLayoutProvider 3', () => {
@@ -166,41 +166,41 @@ suite('Editor ViewLayout - EditorLayoutProvider', () => {
 			lineNumbersMinChars: 0,
 			lineDecorationsWidth: 10,
 			maxDigitWidth: 10,
-			lineCount: 1,
+			maxLineNumber: 1,
 			verticalScrollbarWidth: 0,
 			horizontalScrollbarHeight: 0,
 			scrollbarArrowSize: 0,
 			verticalScrollbarHasArrows: false
-		}, {
-			width:900,
-			height:900,
+		}, new EditorLayoutInfo({
+			width: 900,
+			height: 900,
 
-			glyphMarginLeft:0,
+			glyphMarginLeft: 0,
 			glyphMarginWidth: 0,
-			glyphMarginHeight:900,
+			glyphMarginHeight: 900,
 
-			lineNumbersLeft:0,
-			lineNumbersWidth:0,
-			lineNumbersHeight:900,
+			lineNumbersLeft: 0,
+			lineNumbersWidth: 0,
+			lineNumbersHeight: 900,
 
-			decorationsLeft:0,
-			decorationsWidth:10,
-			decorationsHeight:900,
+			decorationsLeft: 0,
+			decorationsWidth: 10,
+			decorationsHeight: 900,
 
-			contentLeft:10,
-			contentWidth:890,
-			contentHeight:900,
+			contentLeft: 10,
+			contentWidth: 890,
+			contentHeight: 900,
 
 			verticalScrollbarWidth: 0,
 			horizontalScrollbarHeight: 0,
 
-			overviewRuler: {
+			overviewRuler: new OverviewRulerPosition({
 				top: 0,
 				width: 0,
 				height: 900,
 				right: 0
-			}
-		});
+			})
+		}));
 	});
 
 	test('EditorLayoutProvider 4', () => {
@@ -213,41 +213,41 @@ suite('Editor ViewLayout - EditorLayoutProvider', () => {
 			lineNumbersMinChars: 5,
 			lineDecorationsWidth: 10,
 			maxDigitWidth: 10,
-			lineCount: 1,
+			maxLineNumber: 1,
 			verticalScrollbarWidth: 0,
 			horizontalScrollbarHeight: 0,
 			scrollbarArrowSize: 0,
 			verticalScrollbarHasArrows: false
-		}, {
-			width:900,
-			height:900,
+		}, new EditorLayoutInfo({
+			width: 900,
+			height: 900,
 
-			glyphMarginLeft:0,
+			glyphMarginLeft: 0,
 			glyphMarginWidth: 0,
-			glyphMarginHeight:900,
+			glyphMarginHeight: 900,
 
-			lineNumbersLeft:0,
-			lineNumbersWidth:0,
-			lineNumbersHeight:900,
+			lineNumbersLeft: 0,
+			lineNumbersWidth: 0,
+			lineNumbersHeight: 900,
 
-			decorationsLeft:0,
-			decorationsWidth:10,
-			decorationsHeight:900,
+			decorationsLeft: 0,
+			decorationsWidth: 10,
+			decorationsHeight: 900,
 
-			contentLeft:10,
-			contentWidth:890,
-			contentHeight:900,
+			contentLeft: 10,
+			contentWidth: 890,
+			contentHeight: 900,
 
 			verticalScrollbarWidth: 0,
 			horizontalScrollbarHeight: 0,
 
-			overviewRuler: {
+			overviewRuler: new OverviewRulerPosition({
 				top: 0,
 				width: 0,
 				height: 900,
 				right: 0
-			}
-		});
+			})
+		}));
 	});
 
 	test('EditorLayoutProvider 5', () => {
@@ -260,41 +260,41 @@ suite('Editor ViewLayout - EditorLayoutProvider', () => {
 			lineNumbersMinChars: 5,
 			lineDecorationsWidth: 10,
 			maxDigitWidth: 10,
-			lineCount: 1,
+			maxLineNumber: 1,
 			verticalScrollbarWidth: 0,
 			horizontalScrollbarHeight: 0,
 			scrollbarArrowSize: 0,
 			verticalScrollbarHasArrows: false
-		}, {
-			width:900,
-			height:900,
+		}, new EditorLayoutInfo({
+			width: 900,
+			height: 900,
 
-			glyphMarginLeft:0,
+			glyphMarginLeft: 0,
 			glyphMarginWidth: 0,
-			glyphMarginHeight:900,
+			glyphMarginHeight: 900,
 
-			lineNumbersLeft:0,
-			lineNumbersWidth:50,
-			lineNumbersHeight:900,
+			lineNumbersLeft: 0,
+			lineNumbersWidth: 50,
+			lineNumbersHeight: 900,
 
-			decorationsLeft:50,
-			decorationsWidth:10,
-			decorationsHeight:900,
+			decorationsLeft: 50,
+			decorationsWidth: 10,
+			decorationsHeight: 900,
 
-			contentLeft:60,
-			contentWidth:840,
-			contentHeight:900,
+			contentLeft: 60,
+			contentWidth: 840,
+			contentHeight: 900,
 
 			verticalScrollbarWidth: 0,
 			horizontalScrollbarHeight: 0,
 
-			overviewRuler: {
+			overviewRuler: new OverviewRulerPosition({
 				top: 0,
 				width: 0,
 				height: 900,
 				right: 0
-			}
-		});
+			})
+		}));
 	});
 
 	test('EditorLayoutProvider 6', () => {
@@ -307,41 +307,41 @@ suite('Editor ViewLayout - EditorLayoutProvider', () => {
 			lineNumbersMinChars: 5,
 			lineDecorationsWidth: 10,
 			maxDigitWidth: 10,
-			lineCount: 99999,
+			maxLineNumber: 99999,
 			verticalScrollbarWidth: 0,
 			horizontalScrollbarHeight: 0,
 			scrollbarArrowSize: 0,
 			verticalScrollbarHasArrows: false
-		}, {
-			width:900,
-			height:900,
+		}, new EditorLayoutInfo({
+			width: 900,
+			height: 900,
 
-			glyphMarginLeft:0,
+			glyphMarginLeft: 0,
 			glyphMarginWidth: 0,
-			glyphMarginHeight:900,
+			glyphMarginHeight: 900,
 
-			lineNumbersLeft:0,
-			lineNumbersWidth:50,
-			lineNumbersHeight:900,
+			lineNumbersLeft: 0,
+			lineNumbersWidth: 50,
+			lineNumbersHeight: 900,
 
-			decorationsLeft:50,
-			decorationsWidth:10,
-			decorationsHeight:900,
+			decorationsLeft: 50,
+			decorationsWidth: 10,
+			decorationsHeight: 900,
 
-			contentLeft:60,
-			contentWidth:840,
-			contentHeight:900,
+			contentLeft: 60,
+			contentWidth: 840,
+			contentHeight: 900,
 
 			verticalScrollbarWidth: 0,
 			horizontalScrollbarHeight: 0,
 
-			overviewRuler: {
+			overviewRuler: new OverviewRulerPosition({
 				top: 0,
 				width: 0,
 				height: 900,
 				right: 0
-			}
-		});
+			})
+		}));
 	});
 
 	test('EditorLayoutProvider 7', () => {
@@ -354,41 +354,41 @@ suite('Editor ViewLayout - EditorLayoutProvider', () => {
 			lineNumbersMinChars: 5,
 			lineDecorationsWidth: 10,
 			maxDigitWidth: 10,
-			lineCount: 100000,
+			maxLineNumber: 100000,
 			verticalScrollbarWidth: 0,
 			horizontalScrollbarHeight: 0,
 			scrollbarArrowSize: 0,
 			verticalScrollbarHasArrows: false
-		}, {
-			width:900,
-			height:900,
+		}, new EditorLayoutInfo({
+			width: 900,
+			height: 900,
 
-			glyphMarginLeft:0,
+			glyphMarginLeft: 0,
 			glyphMarginWidth: 0,
-			glyphMarginHeight:900,
+			glyphMarginHeight: 900,
 
-			lineNumbersLeft:0,
-			lineNumbersWidth:60,
-			lineNumbersHeight:900,
+			lineNumbersLeft: 0,
+			lineNumbersWidth: 60,
+			lineNumbersHeight: 900,
 
-			decorationsLeft:60,
-			decorationsWidth:10,
-			decorationsHeight:900,
+			decorationsLeft: 60,
+			decorationsWidth: 10,
+			decorationsHeight: 900,
 
-			contentLeft:70,
-			contentWidth:830,
-			contentHeight:900,
+			contentLeft: 70,
+			contentWidth: 830,
+			contentHeight: 900,
 
 			verticalScrollbarWidth: 0,
 			horizontalScrollbarHeight: 0,
 
-			overviewRuler: {
+			overviewRuler: new OverviewRulerPosition({
 				top: 0,
 				width: 0,
 				height: 900,
 				right: 0
-			}
-		});
+			})
+		}));
 	});
 
 	test('EditorLayoutProvider 8', () => {
@@ -401,41 +401,41 @@ suite('Editor ViewLayout - EditorLayoutProvider', () => {
 			lineNumbersMinChars: 5,
 			lineDecorationsWidth: 10,
 			maxDigitWidth: 5,
-			lineCount: 100000,
+			maxLineNumber: 100000,
 			verticalScrollbarWidth: 0,
 			horizontalScrollbarHeight: 0,
 			scrollbarArrowSize: 0,
 			verticalScrollbarHasArrows: false
-		}, {
-			width:900,
-			height:900,
+		}, new EditorLayoutInfo({
+			width: 900,
+			height: 900,
 
-			glyphMarginLeft:0,
+			glyphMarginLeft: 0,
 			glyphMarginWidth: 0,
-			glyphMarginHeight:900,
+			glyphMarginHeight: 900,
 
-			lineNumbersLeft:0,
-			lineNumbersWidth:30,
-			lineNumbersHeight:900,
+			lineNumbersLeft: 0,
+			lineNumbersWidth: 30,
+			lineNumbersHeight: 900,
 
-			decorationsLeft:30,
-			decorationsWidth:10,
-			decorationsHeight:900,
+			decorationsLeft: 30,
+			decorationsWidth: 10,
+			decorationsHeight: 900,
 
-			contentLeft:40,
-			contentWidth:860,
-			contentHeight:900,
+			contentLeft: 40,
+			contentWidth: 860,
+			contentHeight: 900,
 
 			verticalScrollbarWidth: 0,
 			horizontalScrollbarHeight: 0,
 
-			overviewRuler: {
+			overviewRuler: new OverviewRulerPosition({
 				top: 0,
 				width: 0,
 				height: 900,
 				right: 0
-			}
-		});
+			})
+		}));
 	});
 
 	test('EditorLayoutProvider 8 - rounds floats', () => {
@@ -448,40 +448,40 @@ suite('Editor ViewLayout - EditorLayoutProvider', () => {
 			lineNumbersMinChars: 5,
 			lineDecorationsWidth: 10,
 			maxDigitWidth: 5.05,
-			lineCount: 100000,
+			maxLineNumber: 100000,
 			verticalScrollbarWidth: 0,
 			horizontalScrollbarHeight: 0,
 			scrollbarArrowSize: 0,
 			verticalScrollbarHasArrows: false
-		}, {
-			width:900,
-			height:900,
+		}, new EditorLayoutInfo({
+			width: 900,
+			height: 900,
 
-			glyphMarginLeft:0,
+			glyphMarginLeft: 0,
 			glyphMarginWidth: 0,
-			glyphMarginHeight:900,
+			glyphMarginHeight: 900,
 
-			lineNumbersLeft:0,
-			lineNumbersWidth:30,
-			lineNumbersHeight:900,
+			lineNumbersLeft: 0,
+			lineNumbersWidth: 30,
+			lineNumbersHeight: 900,
 
-			decorationsLeft:30,
-			decorationsWidth:10,
-			decorationsHeight:900,
+			decorationsLeft: 30,
+			decorationsWidth: 10,
+			decorationsHeight: 900,
 
-			contentLeft:40,
-			contentWidth:860,
-			contentHeight:900,
+			contentLeft: 40,
+			contentWidth: 860,
+			contentHeight: 900,
 
 			verticalScrollbarWidth: 0,
 			horizontalScrollbarHeight: 0,
 
-			overviewRuler: {
+			overviewRuler: new OverviewRulerPosition({
 				top: 0,
 				width: 0,
 				height: 900,
 				right: 0
-			}
-		});
+			})
+		}));
 	});
 });

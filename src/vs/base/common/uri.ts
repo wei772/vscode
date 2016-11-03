@@ -39,6 +39,20 @@ function encodeNoop(str: string): string {
  */
 export default class URI {
 
+	static isUri(thing: any): thing is URI {
+		if (thing instanceof URI) {
+			return true;
+		}
+		if (!thing) {
+			return false;
+		}
+		return typeof (<URI>thing).authority === 'string'
+			&& typeof (<URI>thing).fragment === 'string'
+			&& typeof (<URI>thing).path === 'string'
+			&& typeof (<URI>thing).query === 'string'
+			&& typeof (<URI>thing).scheme === 'string';
+	}
+
 	private static _empty = '';
 	private static _slash = '/';
 	private static _regexp = /^(([^:/?#]+?):)?(\/\/([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?/;
@@ -53,7 +67,7 @@ export default class URI {
 	private _formatted: string;
 	private _fsPath: string;
 
-	constructor() {
+	protected constructor() {
 		this._scheme = URI._empty;
 		this._authority = URI._empty;
 		this._path = URI._empty;
@@ -112,7 +126,7 @@ export default class URI {
 	get fsPath() {
 		if (!this._fsPath) {
 			var value: string;
-			if (this._authority && this.scheme === 'file') {
+			if (this._authority && this._path && this.scheme === 'file') {
 				// unc path: file://shares/c$/far/boo
 				value = `//${this._authority}${this._path}`;
 			} else if (URI._driveLetterPath.test(this._path)) {
@@ -132,35 +146,56 @@ export default class URI {
 
 	// ---- modify to new -------------------------
 
-	public with(scheme: string, authority: string, path: string, query: string, fragment: string): URI {
-		var ret = new URI();
-		ret._scheme = scheme || this.scheme;
-		ret._authority = authority || this.authority;
-		ret._path = path || this.path;
-		ret._query = query || this.query;
-		ret._fragment = fragment || this.fragment;
+	public with(change: { scheme?: string; authority?: string; path?: string; query?: string; fragment?: string }): URI {
+
+		if (!change) {
+			return this;
+		}
+
+		let {scheme, authority, path, query, fragment} = change;
+		if (scheme === void 0) {
+			scheme = this.scheme;
+		} else if (scheme === null) {
+			scheme = '';
+		}
+		if (authority === void 0) {
+			authority = this.authority;
+		} else if (authority === null) {
+			authority = '';
+		}
+		if (path === void 0) {
+			path = this.path;
+		} else if (path === null) {
+			path = '';
+		}
+		if (query === void 0) {
+			query = this.query;
+		} else if (query === null) {
+			query = '';
+		}
+		if (fragment === void 0) {
+			fragment = this.fragment;
+		} else if (fragment === null) {
+			fragment = '';
+		}
+
+		if (scheme === this.scheme
+			&& authority === this.authority
+			&& path === this.path
+			&& query === this.query
+			&& fragment === this.fragment) {
+
+			return this;
+		}
+
+		const ret = new URI();
+		ret._scheme = scheme;
+		ret._authority = authority;
+		ret._path = path;
+		ret._query = query;
+		ret._fragment = fragment;
 		URI._validate(ret);
 		return ret;
-	}
-
-	public withScheme(value: string): URI {
-		return this.with(value, undefined, undefined, undefined, undefined);
-	}
-
-	public withAuthority(value: string): URI {
-		return this.with(undefined, value, undefined, undefined, undefined);
-	}
-
-	public withPath(value: string): URI {
-		return this.with(undefined, undefined, value, undefined, undefined);
-	}
-
-	public withQuery(value: string): URI {
-		return this.with(undefined, undefined, undefined, value, undefined);
-	}
-
-	public withFragment(value: string): URI {
-		return this.with(undefined, undefined, undefined, undefined, value);
 	}
 
 	// ---- parse & validate ------------------------
@@ -231,23 +266,36 @@ export default class URI {
 		return ret;
 	}
 
-	public static create(scheme?: string, authority?: string, path?: string, query?: string, fragment?: string): URI {
-		return new URI().with(scheme, authority, path, query, fragment);
+	public static from(components: { scheme?: string; authority?: string; path?: string; query?: string; fragment?: string }): URI {
+		return new URI().with(components);
 	}
 
-	private static _validate(ret: URI): void {
+	private static _schemePattern = /^\w[\w\d+.-]*$/;
+	private static _singleSlashStart = /^\//;
+	private static _doubleSlashStart = /^\/\//;
 
-		// validation
+	private static _validate(ret: URI): void {
+		// scheme, https://tools.ietf.org/html/rfc3986#section-3.1
+		// ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
+		if (ret.scheme && !URI._schemePattern.test(ret.scheme)) {
+			throw new Error('[UriError]: Scheme contains illegal characters.');
+		}
+
 		// path, http://tools.ietf.org/html/rfc3986#section-3.3
 		// If a URI contains an authority component, then the path component
 		// must either be empty or begin with a slash ("/") character.  If a URI
 		// does not contain an authority component, then the path cannot begin
 		// with two slash characters ("//").
-		if (ret.authority && ret.path && ret.path[0] !== '/') {
-			throw new Error('[UriError]: If a URI contains an authority component, then the path component must either be empty or begin with a slash ("/") character');
-		}
-		if (!ret.authority && ret.path.indexOf('//') === 0) {
-			throw new Error('[UriError]: If a URI does not contain an authority component, then the path cannot begin with two slash characters ("//")');
+		if (ret.path) {
+			if (ret.authority) {
+				if (!URI._singleSlashStart.test(ret.path)) {
+					throw new Error('[UriError]: If a URI contains an authority component, then the path component must either be empty or begin with a slash ("/") character');
+				}
+			} else {
+				if (URI._doubleSlashStart.test(ret.path)) {
+					throw new Error('[UriError]: If a URI does not contain an authority component, then the path cannot begin with two slash characters ("//")');
+				}
+			}
 		}
 	}
 
@@ -294,10 +342,14 @@ export default class URI {
 			}
 		}
 		if (path) {
-			// lower-case windown drive letters in /C:/fff
+			// lower-case windows drive letters in /C:/fff or C:/fff
 			const m = URI._upperCaseDrive.exec(path);
 			if (m) {
-				path = m[1] + m[2].toLowerCase() + path.substr(m[1].length + m[2].length);
+				if (m[1]) {
+					path = '/' + m[2].toLowerCase() + path.substr(3); // "/c:".length === 3
+				} else {
+					path = m[2].toLowerCase() + path.substr(2); // // "c:".length === 2
+				}
 			}
 
 			// encode every segement but not slashes
@@ -305,7 +357,7 @@ export default class URI {
 			// when occurring in paths - otherwise the result
 			// cannot be parsed back again
 			let lastIdx = 0;
-			while(true) {
+			while (true) {
 				let idx = path.indexOf(URI._slash, lastIdx);
 				if (idx === -1) {
 					parts.push(encoder(path.substring(lastIdx)).replace(/[#?]/, _encode));
@@ -326,26 +378,26 @@ export default class URI {
 	}
 
 	public toJSON(): any {
-		return <UriState> {
+		return <UriState>{
 			scheme: this.scheme,
 			authority: this.authority,
 			path: this.path,
 			fsPath: this.fsPath,
 			query: this.query,
-			fragment: this.fragment.replace(/URL_MARSHAL_REMOVE.*$/, ''), // TODO@Alex: implement derived resources (embedded mirror models) better
-			external: this.toString().replace(/#?URL_MARSHAL_REMOVE.*$/, ''), // TODO@Alex: implement derived resources (embedded mirror models) better
+			fragment: this.fragment,
+			external: this.toString(),
 			$mid: 1
 		};
 	}
 
 	static revive(data: any): URI {
 		let result = new URI();
-		result._scheme = (<UriState> data).scheme;
-		result._authority = (<UriState> data).authority;
-		result._path = (<UriState> data).path;
-		result._query = (<UriState> data).query;
-		result._fragment = (<UriState> data).fragment;
-		result._fsPath = (<UriState> data).fsPath;
+		result._scheme = (<UriState>data).scheme;
+		result._authority = (<UriState>data).authority;
+		result._path = (<UriState>data).path;
+		result._query = (<UriState>data).query;
+		result._fragment = (<UriState>data).fragment;
+		result._fsPath = (<UriState>data).fsPath;
 		result._formatted = (<UriState>data).external;
 		URI._validate(result);
 		return result;

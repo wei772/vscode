@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import path = require('path');
 import nls = require('vs/nls');
 import { TPromise } from 'vs/base/common/winjs.base';
 import strings = require('vs/base/common/strings');
-import Event, { Emitter } from 'vs/base/common/event';
+import types = require('vs/base/common/types');
+import { isLinux, isMacintosh, isWindows } from 'vs/base/common/platform';
 import objects = require('vs/base/common/objects');
 import uri from 'vs/base/common/uri';
 import { Schemas } from 'vs/base/common/network';
@@ -20,22 +20,22 @@ import jsonContributionRegistry = require('vs/platform/jsonschemas/common/jsonCo
 import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
 import { IFileService } from 'vs/platform/files/common/files';
 import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
-import debug = require('vs/workbench/parts/debug/common/debug');
-import { SystemVariables } from 'vs/workbench/parts/lib/node/systemVariables';
+import { IWorkspaceContextService } from 'vs/platform/workspace/common/workspace';
+import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
+import * as debug from 'vs/workbench/parts/debug/common/debug';
 import { Adapter } from 'vs/workbench/parts/debug/node/debugAdapter';
-import { IWorkspaceContextService } from 'vs/workbench/services/workspace/common/contextService';
 import { IWorkbenchEditorService } from 'vs/workbench/services/editor/common/editorService';
 import { IQuickOpenService } from 'vs/workbench/services/quickopen/common/quickOpenService';
+import { IConfigurationResolverService } from 'vs/workbench/services/configurationResolver/common/configurationResolver';
 
 // debuggers extension point
-
-export var debuggersExtPoint = extensionsRegistry.ExtensionsRegistry.registerExtensionPoint<debug.IRawAdapter[]>('debuggers', {
+export const debuggersExtPoint = extensionsRegistry.ExtensionsRegistry.registerExtensionPoint<debug.IRawAdapter[]>('debuggers', [], {
 	description: nls.localize('vscode.extension.contributes.debuggers', 'Contributes debug adapters.'),
 	type: 'array',
 	defaultSnippets: [{ body: [{ type: '', extensions: [] }] }],
 	items: {
 		type: 'object',
-		defaultSnippets: [{ body: { type: '', program: '', runtime: '', enableBreakpointsFor: { languageIds: [ '' ] } } }],
+		defaultSnippets: [{ body: { type: '', program: '', runtime: '', enableBreakpointsFor: { languageIds: [''] } } }],
 		properties: {
 			type: {
 				description: nls.localize('vscode.extension.contributes.debuggers.type', "Unique identifier for this debug adapter."),
@@ -49,7 +49,7 @@ export var debuggersExtPoint = extensionsRegistry.ExtensionsRegistry.registerExt
 				description: nls.localize('vscode.extension.contributes.debuggers.enableBreakpointsFor', "Allow breakpoints for these languages."),
 				type: 'object',
 				properties: {
-					languageIds : {
+					languageIds: {
 						description: nls.localize('vscode.extension.contributes.debuggers.enableBreakpointsFor.languageIds', "List of languages."),
 						type: 'array',
 						items: {
@@ -66,17 +66,21 @@ export var debuggersExtPoint = extensionsRegistry.ExtensionsRegistry.registerExt
 				description: nls.localize('vscode.extension.contributes.debuggers.args', "Optional arguments to pass to the adapter."),
 				type: 'array'
 			},
-			runtime : {
+			runtime: {
 				description: nls.localize('vscode.extension.contributes.debuggers.runtime', "Optional runtime in case the program attribute is not an executable but requires a runtime."),
 				type: 'string'
 			},
-			runtimeArgs : {
+			runtimeArgs: {
 				description: nls.localize('vscode.extension.contributes.debuggers.runtimeArgs', "Optional runtime arguments."),
 				type: 'array'
 			},
+			variables: {
+				description: nls.localize('vscode.extension.contributes.debuggers.variables', "Mapping from interactive variables (e.g ${action.pickProcess}) in `launch.json` to a command."),
+				type: 'object'
+			},
 			initialConfigurations: {
 				description: nls.localize('vscode.extension.contributes.debuggers.initialConfigurations', "Configurations for generating the initial \'launch.json\'."),
-				type: 'array',
+				type: ['array', 'string'],
 			},
 			configurationAttributes: {
 				description: nls.localize('vscode.extension.contributes.debuggers.configurationAttributes', "JSON schema configurations for validating \'launch.json\'."),
@@ -86,7 +90,7 @@ export var debuggersExtPoint = extensionsRegistry.ExtensionsRegistry.registerExt
 				description: nls.localize('vscode.extension.contributes.debuggers.windows', "Windows specific settings."),
 				type: 'object',
 				properties: {
-					runtime : {
+					runtime: {
 						description: nls.localize('vscode.extension.contributes.debuggers.windows.runtime', "Runtime used for Windows."),
 						type: 'string'
 					}
@@ -96,7 +100,7 @@ export var debuggersExtPoint = extensionsRegistry.ExtensionsRegistry.registerExt
 				description: nls.localize('vscode.extension.contributes.debuggers.osx', "OS X specific settings."),
 				type: 'object',
 				properties: {
-					runtime : {
+					runtime: {
 						description: nls.localize('vscode.extension.contributes.debuggers.osx.runtime', "Runtime used for OSX."),
 						type: 'string'
 					}
@@ -106,7 +110,7 @@ export var debuggersExtPoint = extensionsRegistry.ExtensionsRegistry.registerExt
 				description: nls.localize('vscode.extension.contributes.debuggers.linux', "Linux specific settings."),
 				type: 'object',
 				properties: {
-					runtime : {
+					runtime: {
 						description: nls.localize('vscode.extension.contributes.debuggers.linux.runtime', "Runtime used for Linux."),
 						type: 'string'
 					}
@@ -116,13 +120,30 @@ export var debuggersExtPoint = extensionsRegistry.ExtensionsRegistry.registerExt
 	}
 });
 
+// breakpoints extension point #9037
+export const breakpointsExtPoint = extensionsRegistry.ExtensionsRegistry.registerExtensionPoint<debug.IRawBreakpointContribution[]>('breakpoints', [], {
+	description: nls.localize('vscode.extension.contributes.breakpoints', 'Contributes breakpoints.'),
+	type: 'array',
+	defaultSnippets: [{ body: [{ language: '' }] }],
+	items: {
+		type: 'object',
+		defaultSnippets: [{ body: { language: '' } }],
+		properties: {
+			language: {
+				description: nls.localize('vscode.extension.contributes.breakpoints.language', "Allow breakpoints for this language."),
+				type: 'string'
+			},
+		}
+	}
+});
+
 // debug general schema
 
-export var schemaId = 'vscode://schemas/launch';
+export const schemaId = 'vscode://schemas/launch';
 const schema: IJSONSchema = {
 	id: schemaId,
 	type: 'object',
-	title: nls.localize('app.launch.json.title', "Launch configuration"),
+	title: nls.localize('app.launch.json.title', "Launch"),
 	required: ['version', 'configurations'],
 	properties: {
 		version: {
@@ -132,11 +153,17 @@ const schema: IJSONSchema = {
 		},
 		configurations: {
 			type: 'array',
-			description: nls.localize('app.launch.json.configurations', "List of configurations. Add new configurations or edit existing ones."),
+			description: nls.localize('app.launch.json.configurations', "List of configurations. Add new configurations or edit existing ones by using IntelliSense."),
 			items: {
+				'type': 'object',
 				oneOf: []
 			}
-		}
+		},
+		// TODO@Isidor remove support for this in December
+		debugServer: {
+			type: 'number',
+			description: nls.localize('app.launch.json.debugServer', "DEPRECATED: please move debugServer inside a configuration.")
+		},
 	}
 };
 
@@ -144,25 +171,19 @@ const jsonRegistry = <jsonContributionRegistry.IJSONContributionRegistry>platfor
 jsonRegistry.registerSchema(schemaId, schema);
 
 export class ConfigurationManager implements debug.IConfigurationManager {
-
-	public configuration: debug.IConfig;
-	private systemVariables: SystemVariables;
 	private adapters: Adapter[];
 	private allModeIdsForBreakpoints: { [key: string]: boolean };
-	private _onDidConfigurationChange: Emitter<string>;
 
 	constructor(
-		configName: string,
 		@IWorkspaceContextService private contextService: IWorkspaceContextService,
 		@IFileService private fileService: IFileService,
 		@ITelemetryService private telemetryService: ITelemetryService,
 		@IWorkbenchEditorService private editorService: IWorkbenchEditorService,
 		@IConfigurationService private configurationService: IConfigurationService,
-		@IQuickOpenService private quickOpenService: IQuickOpenService
+		@IQuickOpenService private quickOpenService: IQuickOpenService,
+		@IConfigurationResolverService private configurationResolverService: IConfigurationResolverService,
+		@IInstantiationService private instantiationService: IInstantiationService
 	) {
-		this._onDidConfigurationChange = new Emitter<string>();
-		this.systemVariables = this.contextService.getWorkspace() ? new SystemVariables(this.editorService, this.contextService) : null;
-		this.setConfiguration(configName);
 		this.adapters = [];
 		this.registerListeners();
 		this.allModeIdsForBreakpoints = {};
@@ -173,18 +194,18 @@ export class ConfigurationManager implements debug.IConfigurationManager {
 
 			extensions.forEach(extension => {
 				extension.value.forEach(rawAdapter => {
-					const adapter = new Adapter(rawAdapter, this.systemVariables, extension.description.extensionFolderPath);
+					const adapter = this.instantiationService.createInstance(Adapter, rawAdapter, extension.description);
 					const duplicate = this.adapters.filter(a => a.type === adapter.type)[0];
 					if (!rawAdapter.type || (typeof rawAdapter.type !== 'string')) {
 						extension.collector.error(nls.localize('debugNoType', "Debug adapter 'type' can not be omitted and must be of type 'string'."));
 					}
 
 					if (duplicate) {
-						Object.keys(adapter).forEach(attribute => {
-							if (adapter[attribute]) {
-								if (attribute === 'enableBreakpointsFor') {
+						Object.keys(rawAdapter).forEach(attribute => {
+							if (rawAdapter[attribute]) {
+								if (attribute === 'enableBreakpointsFor' && duplicate[attribute]) {
 									Object.keys(adapter.enableBreakpointsFor).forEach(languageId => duplicate.enableBreakpointsFor[languageId] = true);
-								} else if (duplicate[attribute] && attribute !== 'type') {
+								} else if (duplicate[attribute] && attribute !== 'type' && attribute !== 'label') {
 									// give priority to the later registered extension.
 									duplicate[attribute] = adapter[attribute];
 									extension.collector.error(nls.localize('duplicateDebuggerType', "Debug type '{0}' is already registered and has attribute '{1}', ignoring attribute '{1}'.", adapter.type, attribute));
@@ -210,139 +231,116 @@ export class ConfigurationManager implements debug.IConfigurationManager {
 			this.adapters.forEach(adapter => {
 				const schemaAttributes = adapter.getSchemaAttributes();
 				if (schemaAttributes) {
-					(<IJSONSchema> schema.properties['configurations'].items).oneOf.push(...schemaAttributes);
+					(<IJSONSchema>schema.properties['configurations'].items).oneOf.push(...schemaAttributes);
 				}
+			});
+		});
+
+		breakpointsExtPoint.setHandler(extensions => {
+			extensions.forEach(ext => {
+				ext.value.forEach(breakpoints => {
+					this.allModeIdsForBreakpoints[breakpoints.language] = true;
+				});
 			});
 		});
 	}
 
-	public get onDidConfigurationChange(): Event<string> {
-		return this._onDidConfigurationChange.event;
+	public getAdapter(type: string): Adapter {
+		return this.adapters.filter(adapter => strings.equalsIgnoreCase(adapter.type, type)).pop();
 	}
 
-	public get configurationName(): string {
-		return this.configuration ? this.configuration.name : null;
-	}
+	public getConfiguration(nameOrConfig: string | debug.IConfig): TPromise<debug.IConfig> {
+		const config = this.configurationService.getConfiguration<debug.IGlobalConfig>('launch');
 
-	public get adapter(): Adapter {
-		return this.adapters.filter(adapter => strings.equalsIgnoreCase(adapter.type, this.configuration.type)).pop();
-	}
-
-	public setConfiguration(name: string): TPromise<void> {
-		return this.loadLaunchConfig().then(config => {
+		let result: debug.IConfig = null;
+		if (types.isObject(nameOrConfig)) {
+			result = objects.deepClone(nameOrConfig) as debug.IConfig;
+		} else {
 			if (!config || !config.configurations) {
-				this.configuration = null;
-				return;
+				return TPromise.as(null);
 			}
-
 			// if the configuration name is not set yet, take the first launch config (can happen if debug viewlet has not been opened yet).
-			const filtered = name ? config.configurations.filter(cfg => cfg.name === name) : [config.configurations[0]];
+			const filtered = config.configurations.filter(cfg => cfg.name === nameOrConfig);
+
+			result = filtered.length === 1 ? filtered[0] : config.configurations[0];
+			result = objects.deepClone(result);
+			if (config && result && config.debugServer) {
+				result.debugServer = config.debugServer;
+			}
+		}
+
+		if (result) {
+			// Set operating system specific properties #1873
+			if (isWindows && result.windows) {
+				Object.keys(result.windows).forEach(key => {
+					result[key] = result.windows[key];
+				});
+			}
+			if (isMacintosh && result.osx) {
+				Object.keys(result.osx).forEach(key => {
+					result[key] = result.osx[key];
+				});
+			}
+			if (isLinux && result.linux) {
+				Object.keys(result.linux).forEach(key => {
+					result[key] = result.linux[key];
+				});
+			}
 
 			// massage configuration attributes - append workspace path to relatvie paths, substitute variables in paths.
-			this.configuration = filtered.length === 1 ? objects.deepClone(filtered[0]) : null;
-			if (this.configuration) {
-				if (this.systemVariables) {
-					Object.keys(this.configuration).forEach(key => {
-						this.configuration[key] = this.systemVariables.resolveAny(this.configuration[key]);
-					});
-				}
-				this.configuration.debugServer = config.debugServer;
-			}
-		}).then(() => this._onDidConfigurationChange.fire(this.configurationName));
+			Object.keys(result).forEach(key => {
+				result[key] = this.configurationResolverService.resolveAny(result[key]);
+			});
+
+			const adapter = this.getAdapter(result.type);
+			return this.configurationResolverService.resolveInteractiveVariables(result, adapter ? adapter.variables : null);
+		}
 	}
 
 	public openConfigFile(sideBySide: boolean): TPromise<boolean> {
 		const resource = uri.file(paths.join(this.contextService.getWorkspace().resource.fsPath, '/.vscode/launch.json'));
+		let configFileCreated = false;
 
 		return this.fileService.resolveContent(resource).then(content => true, err =>
-			this.getInitialConfigFileContent().then(content => {
-				if (!content) {
-					return false;
-				}
-
-				return this.fileService.updateContent(resource, content).then(() => true);
-			}
-		)).then(configFileCreated => {
-			if (!configFileCreated) {
-				return false;
-			}
-			this.telemetryService.publicLog('debugConfigure');
-
-			return this.editorService.openEditor({
-				resource: resource,
-				options: {
-					forceOpen: true
-				}
-			}, sideBySide).then(() => true);
-		}, (error) => {
-			throw new Error(nls.localize('DebugConfig.failed', "Unable to create 'launch.json' file inside the '.vscode' folder ({0}).", error));
-		});
-	}
-
-	private getInitialConfigFileContent(): TPromise<string> {
-		return this.quickOpenService.pick(this.adapters, { placeHolder: nls.localize('selectDebug', "Select Environment") })
-		.then(adapter => {
-			if (!adapter) {
-				return null;
-			}
-
-			return this.massageInitialConfigurations(adapter).then(() => {
-				let editorConfig = this.configurationService.getConfiguration<any>();
-				return JSON.stringify(
-					{
-						version: '0.2.0',
-						configurations: adapter.initialConfigurations ? adapter.initialConfigurations : []
-					},
-					null,
-					editorConfig.editor.insertSpaces ? strings.repeat(' ', editorConfig.editor.tabSize) : '\t');
-			});
-		});
-	}
-
-	private massageInitialConfigurations(adapter: Adapter): TPromise<void> {
-		if (!adapter || !adapter.initialConfigurations || adapter.type !== 'node') {
-			return TPromise.as(undefined);
-		}
-
-		// check package.json for 'main' or 'scripts' so we generate a more pecise 'program' attribute in launch.json.
-		const packageJsonUri = uri.file(paths.join(this.contextService.getWorkspace().resource.fsPath, '/package.json'));
-		return this.fileService.resolveContent(packageJsonUri).then(jsonContent => {
-			try {
-				const jsonObject = JSON.parse(jsonContent.value);
-				if (jsonObject.main) {
-					return jsonObject.main;
-				} else if (jsonObject.scripts && typeof jsonObject.scripts.start === 'string') {
-					return (<string>jsonObject.scripts.start).split(' ').pop();
-				}
-
-			} catch (error) { }
-
-			return null;
-		}, err => null).then((program: string) => {
-			adapter.initialConfigurations.forEach(config => {
-				if (program && config.program) {
-					if (!path.isAbsolute(program)) {
-						program = paths.join('${workspaceRoot}', program);
+			this.quickOpenService.pick(this.adapters, { placeHolder: nls.localize('selectDebug', "Select Environment") })
+				.then(adapter => adapter ? adapter.getInitialConfigFileContent() : null)
+				.then(content => {
+					if (!content) {
+						return false;
 					}
 
-					config.program = program;
+					configFileCreated = true;
+					return this.fileService.updateContent(resource, content).then(() => true);
+				}))
+			.then(errorFree => {
+				if (!errorFree) {
+					return false;
 				}
+				this.telemetryService.publicLog('debugConfigure');
+
+				return this.editorService.openEditor({
+					resource: resource,
+					options: {
+						forceOpen: true,
+						pinned: configFileCreated // pin only if config file is created #8727
+					},
+				}, sideBySide).then(() => true);
+			}, (error) => {
+				throw new Error(nls.localize('DebugConfig.failed', "Unable to create 'launch.json' file inside the '.vscode' folder ({0}).", error));
 			});
-		});
 	}
 
 	public canSetBreakpointsIn(model: editor.IModel): boolean {
-		if (model.getAssociatedResource().scheme === Schemas.inMemory) {
+		if (model.uri.scheme === Schemas.inMemory) {
 			return false;
+		}
+		if (this.configurationService.getConfiguration<debug.IDebugConfiguration>('debug').allowBreakpointsEverywhere) {
+			return true;
 		}
 
 		const mode = model ? model.getMode() : null;
 		const modeId = mode ? mode.getId() : null;
 
 		return !!this.allModeIdsForBreakpoints[modeId];
-	}
-
-	public loadLaunchConfig(): TPromise<debug.IGlobalConfig> {
-		return TPromise.as(this.configurationService.getConfiguration<debug.IGlobalConfig>('launch'));
 	}
 }

@@ -3,23 +3,16 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import {TPromise} from 'vs/base/common/winjs.base';
-import {IEventEmitter} from 'vs/base/common/eventEmitter';
-import {Dimension, Builder} from 'vs/base/browser/builder';
-import {IAction, IActionRunner, ActionRunner} from 'vs/base/common/actions';
-import {IActionItem} from 'vs/base/browser/ui/actionbar/actionbar';
-import {WorkbenchComponent} from 'vs/workbench/common/component';
-import {CompositeEvent} from 'vs/workbench/common/events';
-import {ITelemetryService} from 'vs/platform/telemetry/common/telemetry';
-import {AsyncDescriptor} from 'vs/platform/instantiation/common/descriptors';
-import {IComposite} from 'vs/workbench/common/composite';
-
-/**
- * Internal composite events to communicate with composite container.
- */
-export const EventType = {
-	INTERNAL_COMPOSITE_TITLE_AREA_UPDATE: 'internalCompositeTitleAreaUpdate'
-};
+import { TPromise } from 'vs/base/common/winjs.base';
+import { Dimension, Builder } from 'vs/base/browser/builder';
+import { IAction, IActionRunner, ActionRunner } from 'vs/base/common/actions';
+import { IActionItem } from 'vs/base/browser/ui/actionbar/actionbar';
+import { WorkbenchComponent } from 'vs/workbench/common/component';
+import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
+import { AsyncDescriptor } from 'vs/platform/instantiation/common/descriptors';
+import { IComposite } from 'vs/workbench/common/composite';
+import { IEditorControl } from 'vs/platform/editor/common/editor';
+import Event, { Emitter } from 'vs/base/common/event';
 
 /**
  * Composites are layed out in the sidebar and panel part of the workbench. At a time only one composite
@@ -35,6 +28,7 @@ export abstract class Composite extends WorkbenchComponent implements IComposite
 	private _telemetryData: any = {};
 	private visible: boolean;
 	private parent: Builder;
+	private _onTitleAreaUpdate: Emitter<void>;
 
 	protected actionRunner: IActionRunner;
 
@@ -45,6 +39,7 @@ export abstract class Composite extends WorkbenchComponent implements IComposite
 		super(id);
 
 		this.visible = false;
+		this._onTitleAreaUpdate = new Emitter<void>();
 	}
 
 	public getTitle(): string {
@@ -59,8 +54,12 @@ export abstract class Composite extends WorkbenchComponent implements IComposite
 		return this._telemetryData;
 	}
 
+	public get onTitleAreaUpdate(): Event<void> {
+		return this._onTitleAreaUpdate.event;
+	}
+
 	/**
-	 * Note: Clients should not call this method, the monaco workbench calls this
+	 * Note: Clients should not call this method, the workbench calls this
 	 * method. Calling it otherwise may result in unexpected behavior.
 	 *
 	 * Called to create this composite on the provided builder. This method is only
@@ -82,7 +81,7 @@ export abstract class Composite extends WorkbenchComponent implements IComposite
 	}
 
 	/**
-	 * Note: Clients should not call this method, the monaco workbench calls this
+	 * Note: Clients should not call this method, the workbench calls this
 	 * method. Calling it otherwise may result in unexpected behavior.
 	 *
 	 * Called to indicate that the composite has become visible or hidden. This method
@@ -100,6 +99,12 @@ export abstract class Composite extends WorkbenchComponent implements IComposite
 		if (visible) {
 			this._telemetryData = {};
 			this._telemetryData.startTime = new Date();
+
+			// Only submit telemetry data when not running from an integration test
+			if (this._telemetryService && this._telemetryService.publicLog) {
+				let eventName: string = 'compositeOpen';
+				this._telemetryService.publicLog(eventName, { composite: this.getId() });
+			}
 		}
 
 		// Send telemetry data when composite hides
@@ -174,7 +179,7 @@ export abstract class Composite extends WorkbenchComponent implements IComposite
 	 * gets visible.
 	 */
 	protected updateTitleArea(): void {
-		this.emit(EventType.INTERNAL_COMPOSITE_TITLE_AREA_UPDATE, new CompositeEvent(this.getId()));
+		this._onTitleAreaUpdate.fire();
 	}
 
 	/**
@@ -187,13 +192,19 @@ export abstract class Composite extends WorkbenchComponent implements IComposite
 	/**
 	 * Returns the underlying composite control or null if it is not accessible.
 	 */
-	public getControl(): IEventEmitter {
+	public getControl(): IEditorControl {
 		return null;
+	}
+
+	public dispose(): void {
+		this._onTitleAreaUpdate.dispose();
+
+		super.dispose();
 	}
 }
 
 /**
- * A composite descriptor is a leightweight descriptor of a composite in the monaco workbench.
+ * A composite descriptor is a leightweight descriptor of a composite in the workbench.
  */
 export abstract class CompositeDescriptor<T extends Composite> extends AsyncDescriptor<T> {
 	public id: string;

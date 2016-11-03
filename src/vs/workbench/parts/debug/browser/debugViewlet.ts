@@ -14,7 +14,8 @@ import { SplitView } from 'vs/base/browser/ui/splitview/splitview';
 import memento = require('vs/workbench/common/memento');
 import { IViewletView, Viewlet } from 'vs/workbench/browser/viewlet';
 import debug = require('vs/workbench/parts/debug/common/debug');
-import debugactions = require('vs/workbench/parts/debug/electron-browser/debugActions');
+import { DebugViewRegistry } from 'vs/workbench/parts/debug/browser/debugViewRegistry';
+import debugactions = require('vs/workbench/parts/debug/browser/debugActions');
 import dbgactionitems = require('vs/workbench/parts/debug/browser/debugActionItems');
 import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
 import { IProgressService, IProgressRunner } from 'vs/platform/progress/common/progress';
@@ -52,8 +53,8 @@ export class DebugViewlet extends Viewlet {
 		this.viewletSettings = this.getMemento(storageService, memento.Scope.WORKSPACE);
 		this.toDispose = [];
 		this.views = [];
-		this.toDispose.push(this.debugService.onDidChangeState((state) => {
-			this.onDebugServiceStateChange(state);
+		this.toDispose.push(this.debugService.onDidChangeState(() => {
+			this.onDebugServiceStateChange();
 		}));
 	}
 
@@ -65,7 +66,7 @@ export class DebugViewlet extends Viewlet {
 
 		if (this.contextService.getWorkspace()) {
 			const actionRunner = this.getActionRunner();
-			this.views = debug.DebugViewRegistry.getDebugViews().map(viewConstructor => this.instantiationService.createInstance(
+			this.views = DebugViewRegistry.getDebugViews().map(viewConstructor => this.instantiationService.createInstance(
 				viewConstructor,
 				actionRunner,
 				this.viewletSettings)
@@ -123,7 +124,7 @@ export class DebugViewlet extends Viewlet {
 
 		if (!this.actions) {
 			this.actions = [
-				this.instantiationService.createInstance(debugactions.StartDebugAction, debugactions.StartDebugAction.ID, debugactions.StartDebugAction.LABEL),
+				this.instantiationService.createInstance(debugactions.StartAction, debugactions.StartAction.ID, debugactions.StartAction.LABEL),
 				this.instantiationService.createInstance(debugactions.SelectConfigAction, debugactions.SelectConfigAction.ID, debugactions.SelectConfigAction.LABEL),
 				this.instantiationService.createInstance(debugactions.ConfigureAction, debugactions.ConfigureAction.ID, debugactions.ConfigureAction.LABEL),
 				this.instantiationService.createInstance(debugactions.ToggleReplAction, debugactions.ToggleReplAction.ID, debugactions.ToggleReplAction.LABEL)
@@ -139,18 +140,18 @@ export class DebugViewlet extends Viewlet {
 
 	public getActionItem(action: actions.IAction): actionbar.IActionItem {
 		if (action.id === debugactions.SelectConfigAction.ID) {
-			return this.instantiationService.createInstance(dbgactionitems.SelectConfigActionItem, action);
+			return this.instantiationService.createInstance(dbgactionitems.DebugSelectActionItem, action);
 		}
 
 		return null;
 	}
 
-	private onDebugServiceStateChange(newState: debug.State): void {
+	private onDebugServiceStateChange(): void {
 		if (this.progressRunner) {
 			this.progressRunner.done();
 		}
 
-		if (newState === debug.State.Initializing) {
+		if (this.debugService.state === debug.State.Initializing) {
 			this.progressRunner = this.progressService.show(true);
 		} else {
 			this.progressRunner = null;

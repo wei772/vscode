@@ -7,19 +7,20 @@
 
 import 'vs/css!./linesDecorations';
 import * as editorCommon from 'vs/editor/common/editorCommon';
-import {IRenderingContext, IViewContext} from 'vs/editor/browser/editorBrowser';
-import {DecorationToRender, DedupOverlay} from 'vs/editor/browser/viewParts/glyphMargin/glyphMargin';
+import { DecorationToRender, DedupOverlay } from 'vs/editor/browser/viewParts/glyphMargin/glyphMargin';
+import { ViewContext } from 'vs/editor/common/view/viewContext';
+import { IRenderingContext } from 'vs/editor/common/view/renderingContext';
 
 export class LinesDecorationsOverlay extends DedupOverlay {
 
-	private _context:IViewContext;
+	private _context: ViewContext;
 	private _lineHeight: number;
 
-	private _decorationsLeft:number;
-	private _decorationsWidth:number;
-	private _renderResult:string[];
+	private _decorationsLeft: number;
+	private _decorationsWidth: number;
+	private _renderResult: string[];
 
-	constructor(context:IViewContext) {
+	constructor(context: ViewContext) {
 		super();
 		this._context = context;
 		this._lineHeight = this._context.configuration.editor.lineHeight;
@@ -40,56 +41,50 @@ export class LinesDecorationsOverlay extends DedupOverlay {
 	public onModelFlushed(): boolean {
 		return true;
 	}
-	public onModelDecorationsChanged(e:editorCommon.IViewDecorationsChangedEvent): boolean {
+	public onModelDecorationsChanged(e: editorCommon.IViewDecorationsChangedEvent): boolean {
 		return true;
 	}
-	public onModelLinesDeleted(e:editorCommon.IViewLinesDeletedEvent): boolean {
+	public onModelLinesDeleted(e: editorCommon.IViewLinesDeletedEvent): boolean {
 		return true;
 	}
-	public onModelLineChanged(e:editorCommon.IViewLineChangedEvent): boolean {
+	public onModelLineChanged(e: editorCommon.IViewLineChangedEvent): boolean {
 		return true;
 	}
-	public onModelLinesInserted(e:editorCommon.IViewLinesInsertedEvent): boolean {
+	public onModelLinesInserted(e: editorCommon.IViewLinesInsertedEvent): boolean {
 		return true;
 	}
-	public onCursorPositionChanged(e:editorCommon.IViewCursorPositionChangedEvent): boolean {
+	public onCursorPositionChanged(e: editorCommon.IViewCursorPositionChangedEvent): boolean {
 		return false;
 	}
-	public onCursorSelectionChanged(e:editorCommon.IViewCursorSelectionChangedEvent): boolean {
+	public onCursorSelectionChanged(e: editorCommon.IViewCursorSelectionChangedEvent): boolean {
 		return false;
 	}
-	public onCursorRevealRange(e:editorCommon.IViewRevealRangeEvent): boolean {
+	public onCursorRevealRange(e: editorCommon.IViewRevealRangeEvent): boolean {
 		return false;
 	}
-	public onConfigurationChanged(e:editorCommon.IConfigurationChangedEvent): boolean {
+	public onConfigurationChanged(e: editorCommon.IConfigurationChangedEvent): boolean {
 		if (e.lineHeight) {
 			this._lineHeight = this._context.configuration.editor.lineHeight;
 		}
 		return true;
 	}
-	public onLayoutChanged(layoutInfo:editorCommon.IEditorLayoutInfo): boolean {
+	public onLayoutChanged(layoutInfo: editorCommon.EditorLayoutInfo): boolean {
 		this._decorationsLeft = layoutInfo.decorationsLeft;
 		this._decorationsWidth = layoutInfo.decorationsWidth;
 		return true;
 	}
-	public onScrollChanged(e:editorCommon.IScrollEvent): boolean {
-		return e.vertical;
+	public onScrollChanged(e: editorCommon.IScrollEvent): boolean {
+		return e.scrollTopChanged;
 	}
 	public onZonesChanged(): boolean {
 		return true;
 	}
-	public onScrollWidthChanged(scrollWidth:number): boolean {
-		return false;
-	}
-	public onScrollHeightChanged(scrollHeight:number): boolean {
-		return false;
-	}
 
 	// --- end event handlers
 
-	protected _getDecorations(ctx:IRenderingContext): DecorationToRender[] {
+	protected _getDecorations(ctx: IRenderingContext): DecorationToRender[] {
 		let decorations = ctx.getDecorationsInViewport();
-		let r:DecorationToRender[] = [];
+		let r: DecorationToRender[] = [];
 		for (let i = 0, len = decorations.length; i < len; i++) {
 			let d = decorations[i];
 			if (d.options.linesDecorationsClassName) {
@@ -99,7 +94,7 @@ export class LinesDecorationsOverlay extends DedupOverlay {
 		return r;
 	}
 
-	public prepareRender(ctx:IRenderingContext): void {
+	public prepareRender(ctx: IRenderingContext): void {
 		if (!this.shouldRender()) {
 			throw new Error('I did not ask to render!');
 		}
@@ -117,22 +112,17 @@ export class LinesDecorationsOverlay extends DedupOverlay {
 		for (let lineNumber = visibleStartLineNumber; lineNumber <= visibleEndLineNumber; lineNumber++) {
 			let lineIndex = lineNumber - visibleStartLineNumber;
 			let classNames = toRender[lineIndex];
-
-			if (classNames.length === 0) {
-				output[lineIndex] = '';
-			} else {
-				output[lineIndex] = (
-					'<div class="cldr'
-					+ classNames
-					+ common
-				);
+			let lineOutput = '';
+			for (let i = 0, len = classNames.length; i < len; i++) {
+				lineOutput += '<div class="cldr ' + classNames[i] + common;
 			}
+			output[lineIndex] = lineOutput;
 		}
 
 		this._renderResult = output;
 	}
 
-	public render(startLineNumber:number, lineNumber:number): string {
+	public render(startLineNumber: number, lineNumber: number): string {
 		if (!this._renderResult) {
 			return '';
 		}

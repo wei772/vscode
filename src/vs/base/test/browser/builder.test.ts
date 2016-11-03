@@ -810,7 +810,7 @@ suite('Builder', () => {
 		b.showDelayed(20);
 		assert(b.hasClass('hidden'));
 
-		TPromise.timeout(30).then(function () {
+		TPromise.timeout(30).then(() => {
 			assert(!b.hasClass('hidden'));
 			done();
 		});
@@ -825,7 +825,7 @@ suite('Builder', () => {
 
 		b.hide(); // Should cancel the visibility promise
 
-		TPromise.timeout(30).then(function () {
+		TPromise.timeout(30).then(() => {
 			assert(b.hasClass('hidden'));
 			done();
 		});
@@ -957,9 +957,6 @@ suite('Builder', () => {
 	test('Builder.select() and .matches()', function () {
 		var b = Build.withElementById(fixtureId);
 
-		assert(b.getPosition());
-		assert(b.getPositionRelativeTo(window.document.body));
-		assert(b.getPositionRelativeTo($(window.document.body)));
 		assert(b.getTotalSize());
 		assert(b.getContentSize());
 	});
@@ -1223,7 +1220,7 @@ suite('Builder', () => {
 
 		var old = DomUtils.addDisposableListener;
 		try {
-			DomUtils.addDisposableListener = function (node, type, handler) {
+			(DomUtils as any).addDisposableListener = function (node, type, handler) {
 				var unbind: IDisposable = old.call(null, node, type, handler);
 
 				return {
@@ -1249,7 +1246,7 @@ suite('Builder', () => {
 			b.empty();
 			assert.strictEqual(unbindCounter, 8);
 		} finally {
-			DomUtils.addDisposableListener = old;
+			(DomUtils as any).addDisposableListener = old;
 		}
 	});
 
@@ -1410,7 +1407,7 @@ suite('Builder', () => {
 
 		var old = DomUtils.addDisposableListener;
 		try {
-			DomUtils.addDisposableListener = function (node, type, handler) {
+			(DomUtils as any).addDisposableListener = function (node, type, handler) {
 				var unbind: IDisposable = old.call(null, node, type, handler);
 
 				return {
@@ -1438,7 +1435,7 @@ suite('Builder', () => {
 			b.destroy();
 			assert.strictEqual(unbindCounter, 16);
 		} finally {
-			DomUtils.addDisposableListener = old;
+			(DomUtils as any).addDisposableListener = old;
 		}
 	});
 

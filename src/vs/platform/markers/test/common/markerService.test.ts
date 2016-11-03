@@ -8,8 +8,7 @@
 import assert = require('assert');
 import URI from 'vs/base/common/uri';
 import markerService = require('vs/platform/markers/common/markerService');
-import {NULL_THREAD_SERVICE} from 'vs/platform/test/common/nullThreadService';
-import {IMarkerData} from 'vs/platform/markers/common/markers';
+import { IMarkerData } from 'vs/platform/markers/common/markers';
 
 function randomMarkerData(): IMarkerData {
 	return {
@@ -26,7 +25,7 @@ suite('Marker Service', () => {
 
 	test('query', () => {
 
-		let service = new markerService.MainProcessMarkerService(NULL_THREAD_SERVICE);
+		let service = new markerService.MarkerService();
 
 		service.changeAll('far', [{
 			resource: URI.parse('file:///c/test/file.cs'),
@@ -52,7 +51,7 @@ suite('Marker Service', () => {
 
 	test('changeOne override', () => {
 
-		let service = new markerService.MainProcessMarkerService(NULL_THREAD_SERVICE);
+		let service = new markerService.MarkerService();
 		service.changeOne('far', URI.parse('/path/only.cs'), [randomMarkerData()]);
 		assert.equal(service.read().length, 1);
 		assert.equal(service.read({ owner: 'far' }).length, 1);
@@ -70,7 +69,7 @@ suite('Marker Service', () => {
 
 	test('changeOne/All clears', () => {
 
-		let service = new markerService.MainProcessMarkerService(NULL_THREAD_SERVICE);
+		let service = new markerService.MarkerService();
 		service.changeOne('far', URI.parse('/path/only.cs'), [randomMarkerData()]);
 		service.changeOne('boo', URI.parse('/path/only.cs'), [randomMarkerData()]);
 		assert.equal(service.read({ owner: 'far' }).length, 1);
@@ -90,14 +89,14 @@ suite('Marker Service', () => {
 
 	test('changeAll sends event for cleared', () => {
 
-		let service = new markerService.MainProcessMarkerService(NULL_THREAD_SERVICE);
+		let service = new markerService.MarkerService();
 		service.changeAll('far', [{
 			resource: URI.parse('file:///d/path'),
 			marker: randomMarkerData()
 		}, {
-				resource: URI.parse('file:///d/path'),
-				marker: randomMarkerData()
-			}]);
+			resource: URI.parse('file:///d/path'),
+			marker: randomMarkerData()
+		}]);
 
 		assert.equal(service.read({ owner: 'far' }).length, 2);
 
@@ -111,16 +110,70 @@ suite('Marker Service', () => {
 	});
 
 	test('changeAll merges', () => {
-		let service = new markerService.MainProcessMarkerService(NULL_THREAD_SERVICE);
+		let service = new markerService.MarkerService();
 
 		service.changeAll('far', [{
 			resource: URI.parse('file:///c/test/file.cs'),
 			marker: randomMarkerData()
 		}, {
-				resource: URI.parse('file:///c/test/file.cs'),
-				marker: randomMarkerData()
-			}]);
+			resource: URI.parse('file:///c/test/file.cs'),
+			marker: randomMarkerData()
+		}]);
 
 		assert.equal(service.read({ owner: 'far' }).length, 2);
+	});
+
+	test('changeAll must not break integrety, issue #12635', () => {
+		let service = new markerService.MarkerService();
+
+		service.changeAll('far', [{
+			resource: URI.parse('scheme:path1'),
+			marker: randomMarkerData()
+		}, {
+			resource: URI.parse('scheme:path2'),
+			marker: randomMarkerData()
+		}]);
+
+		service.changeAll('boo', [{
+			resource: URI.parse('scheme:path1'),
+			marker: randomMarkerData()
+		}]);
+
+		service.changeAll('far', [{
+			resource: URI.parse('scheme:path1'),
+			marker: randomMarkerData()
+		}, {
+			resource: URI.parse('scheme:path2'),
+			marker: randomMarkerData()
+		}]);
+
+		assert.equal(service.read({ owner: 'far' }).length, 2);
+		assert.equal(service.read({ resource: URI.parse('scheme:path1') }).length, 2);
+	});
+
+	test('invalid marker data', () => {
+
+		let data = randomMarkerData();
+		let service = new markerService.MarkerService();
+
+		data.message = undefined;
+		service.changeOne('far', URI.parse('some:uri/path'), [data]);
+		assert.equal(service.read({ owner: 'far' }).length, 0);
+
+		data.message = null;
+		service.changeOne('far', URI.parse('some:uri/path'), [data]);
+		assert.equal(service.read({ owner: 'far' }).length, 0);
+
+		data.message = 'null';
+		service.changeOne('far', URI.parse('some:uri/path'), [data]);
+		assert.equal(service.read({ owner: 'far' }).length, 1);
+	});
+
+	test('MapMap#remove returns bad values, https://github.com/Microsoft/vscode/issues/13548', () => {
+		let service = new markerService.MarkerService();
+
+		service.changeOne('o', URI.parse('some:uri/1'), [randomMarkerData()]);
+		service.changeOne('o', URI.parse('some:uri/2'), []);
+
 	});
 });

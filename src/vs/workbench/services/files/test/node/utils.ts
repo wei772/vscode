@@ -5,12 +5,11 @@
 
 'use strict';
 
-import {IFileStat} from 'vs/platform/files/common/files';
-import {EventEmitter} from 'vs/base/common/eventEmitter';
-import {IEventService} from 'vs/platform/event/common/event';
+import { IFileStat } from 'vs/platform/files/common/files';
+import { EventEmitter } from 'vs/base/common/eventEmitter';
 
 export class TestEventService extends EventEmitter {
-	serviceId = IEventService;
+	_serviceBrand: any;
 }
 
 export function getByName(root: IFileStat, name: string): IFileStat {

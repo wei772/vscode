@@ -5,7 +5,8 @@
 'use strict';
 
 import URI from 'vs/base/common/uri';
-import {illegalArgument} from 'vs/base/common/errors';
+import { illegalArgument } from 'vs/base/common/errors';
+import * as vscode from 'vscode';
 
 export class Disposable {
 
@@ -61,6 +62,20 @@ export class Position {
 			}
 		}
 		return result;
+	}
+
+	static isPosition(other: any): other is Position {
+		if (!other) {
+			return false;
+		}
+		if (other instanceof Position) {
+			return true;
+		}
+		let {line, character} = <Position>other;
+		if (typeof line === 'number' && typeof character === 'number') {
+			return true;
+		}
+		return false;
 	}
 
 	private _line: number;
@@ -135,14 +150,50 @@ export class Position {
 		}
 	}
 
-	translate(lineDelta: number = 0, characterDelta: number = 0): Position {
+	translate(change: { lineDelta?: number; characterDelta?: number; }): Position;
+	translate(lineDelta?: number, characterDelta?: number): Position;
+	translate(lineDeltaOrChange: number | { lineDelta?: number; characterDelta?: number; }, characterDelta: number = 0): Position {
+
+		if (lineDeltaOrChange === null || characterDelta === null) {
+			throw illegalArgument();
+		}
+
+		let lineDelta: number;
+		if (typeof lineDeltaOrChange === 'undefined') {
+			lineDelta = 0;
+		} else if (typeof lineDeltaOrChange === 'number') {
+			lineDelta = lineDeltaOrChange;
+		} else {
+			lineDelta = typeof lineDeltaOrChange.lineDelta === 'number' ? lineDeltaOrChange.lineDelta : 0;
+			characterDelta = typeof lineDeltaOrChange.characterDelta === 'number' ? lineDeltaOrChange.characterDelta : 0;
+		}
+
 		if (lineDelta === 0 && characterDelta === 0) {
 			return this;
 		}
 		return new Position(this.line + lineDelta, this.character + characterDelta);
 	}
 
-	with(line: number = this.line, character: number = this.character): Position {
+	with(change: { line?: number; character?: number; }): Position;
+	with(line?: number, character?: number): Position;
+	with(lineOrChange: number | { line?: number; character?: number; }, character: number = this.character): Position {
+
+		if (lineOrChange === null || character === null) {
+			throw illegalArgument();
+		}
+
+		let line: number;
+		if (typeof lineOrChange === 'undefined') {
+			line = this.line;
+
+		} else if (typeof lineOrChange === 'number') {
+			line = lineOrChange;
+
+		} else {
+			line = typeof lineOrChange.line === 'number' ? lineOrChange.line : this.line;
+			character = typeof lineOrChange.character === 'number' ? lineOrChange.character : this.character;
+		}
+
 		if (line === this.line && character === this.character) {
 			return this;
 		}
@@ -155,6 +206,17 @@ export class Position {
 }
 
 export class Range {
+
+	static isRange(thing: any): thing is Range {
+		if (thing instanceof Range) {
+			return true;
+		}
+		if (!thing) {
+			return false;
+		}
+		return Position.isPosition((<Range>thing).start)
+			&& Position.isPosition((<Range>thing.end));
+	}
 
 	protected _start: Position;
 	protected _end: Position;
@@ -169,7 +231,7 @@ export class Range {
 
 	constructor(start: Position, end: Position);
 	constructor(startLine: number, startColumn: number, endLine: number, endColumn: number);
-	constructor(startLineOrStart: number|Position, startColumnOrEnd: number|Position, endLine?: number, endColumn?: number) {
+	constructor(startLineOrStart: number | Position, startColumnOrEnd: number | Position, endLine?: number, endColumn?: number) {
 		let start: Position;
 		let end: Position;
 
@@ -246,7 +308,26 @@ export class Range {
 		return this._start.line === this._end.line;
 	}
 
-	with(start: Position = this.start, end: Position = this.end): Range {
+	with(change: { start?: Position, end?: Position }): Range;
+	with(start?: Position, end?: Position): Range;
+	with(startOrChange: Position | { start?: Position, end?: Position }, end: Position = this.end): Range {
+
+		if (startOrChange === null || end === null) {
+			throw illegalArgument();
+		}
+
+		let start: Position;
+		if (!startOrChange) {
+			start = this.start;
+
+		} else if (Position.isPosition(startOrChange)) {
+			start = startOrChange;
+
+		} else {
+			start = startOrChange.start || this.start;
+			end = startOrChange.end || this.end;
+		}
+
 		if (start.isEqual(this._start) && end.isEqual(this.end)) {
 			return this;
 		}
@@ -259,6 +340,19 @@ export class Range {
 }
 
 export class Selection extends Range {
+
+	static isSelection(thing: any): thing is Selection {
+		if (thing instanceof Selection) {
+			return true;
+		}
+		if (!thing) {
+			return false;
+		}
+		return Range.isRange(thing)
+			&& Position.isPosition((<Selection>thing).anchor)
+			&& Position.isPosition((<Selection>thing).active)
+			&& typeof (<Selection>thing).isReversed === 'boolean';
+	}
 
 	private _anchor: Position;
 
@@ -274,7 +368,7 @@ export class Selection extends Range {
 
 	constructor(anchor: Position, active: Position);
 	constructor(anchorLine: number, anchorColumn: number, activeLine: number, activeColumn: number);
-	constructor(anchorLineOrAnchor: number|Position, anchorColumnOrActive: number|Position, activeLine?: number, activeColumn?: number) {
+	constructor(anchorLineOrAnchor: number | Position, anchorColumnOrActive: number | Position, activeLine?: number, activeColumn?: number) {
 		let anchor: Position;
 		let active: Position;
 
@@ -311,6 +405,17 @@ export class Selection extends Range {
 }
 
 export class TextEdit {
+
+	static isTextEdit(thing: any): thing is TextEdit {
+		if (thing instanceof TextEdit) {
+			return true;
+		}
+		if (!thing) {
+			return false;
+		}
+		return Range.isRange((<TextEdit>thing))
+			&& typeof (<TextEdit>thing).newText === 'string';
+	}
 
 	static replace(range: Range, newText: string): TextEdit {
 		return new TextEdit(range, newText);
@@ -426,16 +531,29 @@ export enum DiagnosticSeverity {
 
 export class Location {
 
+	static isLocation(thing: any): thing is Location {
+		if (thing instanceof Location) {
+			return true;
+		}
+		if (!thing) {
+			return false;
+		}
+		return Range.isRange((<Location>thing).range)
+			&& URI.isUri((<Location>thing).uri);
+	}
+
 	uri: URI;
 	range: Range;
 
-	constructor(uri: URI, range: Range | Position) {
+	constructor(uri: URI, rangeOrPosition: Range | Position) {
 		this.uri = uri;
 
-		if (range instanceof Range) {
-			this.range = range;
-		} else if (range instanceof Position) {
-			this.range = new Range(range, range);
+		if (!rangeOrPosition) {
+			//that's OK
+		} else if (rangeOrPosition instanceof Range) {
+			this.range = rangeOrPosition;
+		} else if (rangeOrPosition instanceof Position) {
+			this.range = new Range(rangeOrPosition, rangeOrPosition);
 		} else {
 			throw new Error('Illegal argument');
 		}
@@ -481,7 +599,7 @@ export class Hover {
 
 	constructor(contents: vscode.MarkedString | vscode.MarkedString[], range?: Range) {
 		if (!contents) {
-			throw new Error('Illegal argument');
+			throw new Error('Illegal argument, contents must be defined');
 		}
 
 		if (Array.isArray(contents)) {
@@ -494,9 +612,9 @@ export class Hover {
 }
 
 export enum DocumentHighlightKind {
-	Text,
-	Read,
-	Write
+	Text = 0,
+	Read = 1,
+	Write = 2
 }
 
 export class DocumentHighlight {
@@ -548,11 +666,22 @@ export class SymbolInformation {
 	kind: SymbolKind;
 	containerName: string;
 
-	constructor(name: string, kind: SymbolKind, range: Range, uri?: URI, containerName?: string) {
+	constructor(name: string, kind: SymbolKind, containerName: string, location: Location);
+	constructor(name: string, kind: SymbolKind, range: Range, uri?: URI, containerName?: string);
+	constructor(name: string, kind: SymbolKind, rangeOrContainer: string | Range, locationOrUri?: Location | URI, containerName?: string) {
 		this.name = name;
 		this.kind = kind;
-		this.location = new Location(uri, range);
 		this.containerName = containerName;
+
+		if (typeof rangeOrContainer === 'string') {
+			this.containerName = rangeOrContainer;
+		}
+
+		if (locationOrUri instanceof Location) {
+			this.location = locationOrUri;
+		} else if (rangeOrContainer instanceof Range) {
+			this.location = new Location(<URI>locationOrUri, rangeOrContainer);
+		}
 	}
 
 	toJSON(): any {
@@ -617,24 +746,24 @@ export class SignatureHelp {
 }
 
 export enum CompletionItemKind {
-	Text,
-	Method,
-	Function,
-	Constructor,
-	Field,
-	Variable,
-	Class,
-	Interface,
-	Module,
-	Property,
-	Unit,
-	Value,
-	Enum,
-	Keyword,
-	Snippet,
-	Color,
-	File,
-	Reference
+	Text = 0,
+	Method = 1,
+	Function = 2,
+	Constructor = 3,
+	Field = 4,
+	Variable = 5,
+	Class = 6,
+	Interface = 7,
+	Module = 8,
+	Property = 9,
+	Unit = 10,
+	Value = 11,
+	Enum = 12,
+	Keyword = 13,
+	Snippet = 14,
+	Color = 15,
+	File = 16,
+	Reference = 17
 }
 
 export class CompletionItem {
@@ -647,9 +776,12 @@ export class CompletionItem {
 	filterText: string;
 	insertText: string;
 	textEdit: TextEdit;
+	additionalTextEdits: TextEdit[];
+	command: vscode.Command;
 
-	constructor(label: string) {
+	constructor(label: string, kind?: CompletionItemKind) {
 		this.label = label;
+		this.kind = kind;
 	}
 
 	toJSON(): any {
@@ -694,3 +826,54 @@ export enum EndOfLine {
 	CRLF = 2
 }
 
+export enum TextEditorLineNumbersStyle {
+	Off = 0,
+	On = 1,
+	Relative = 2
+}
+
+export enum TextDocumentSaveReason {
+	Manual = 1,
+	AfterDelay = 2,
+	FocusOut = 3
+}
+
+export enum TextEditorRevealType {
+	Default = 0,
+	InCenter = 1,
+	InCenterIfOutsideViewport = 2
+}
+
+export enum TextEditorSelectionChangeKind {
+	Keyboard = 1,
+	Mouse = 2,
+	Command = 3
+}
+
+export namespace TextEditorSelectionChangeKind {
+	export function fromValue(s: string) {
+		switch (s) {
+			case 'keyboard': return TextEditorSelectionChangeKind.Keyboard;
+			case 'mouse': return TextEditorSelectionChangeKind.Mouse;
+			case 'api': return TextEditorSelectionChangeKind.Command;
+		}
+	}
+}
+
+export class DocumentLink {
+
+	range: Range;
+
+	target: URI;
+
+	constructor(range: Range, target: URI) {
+		if (target && !(target instanceof URI)) {
+			throw illegalArgument('target');
+		}
+		if (!Range.isRange(range) || range.isEmpty) {
+			throw illegalArgument('range');
+		}
+		this.range = range;
+		this.target = target;
+	}
+}

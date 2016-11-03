@@ -10,9 +10,8 @@
  */
 
 import * as objects from 'vs/base/common/objects';
-import {IAutoClosingPairConditional, CharacterPair} from 'vs/editor/common/modes';
 import * as monarchCommon from 'vs/editor/common/modes/monarch/monarchCommon';
-import {ILanguage, ILanguageBracket} from 'vs/editor/common/modes/monarch/monarchTypes';
+import { IMonarchLanguage, IMonarchLanguageBracket } from 'vs/editor/common/modes/monarch/monarchTypes';
 
 /*
  * Type helpers
@@ -41,7 +40,7 @@ function isArrayOf(elemType: (x: any) => boolean, obj: any): boolean {
 	return true;
 }
 
-function bool(prop: any, def?: boolean, onerr?: () => void ): boolean {
+function bool(prop: any, def?: boolean, onerr?: () => void): boolean {
 	if (typeof (prop) === 'boolean') {
 		return prop;
 	}
@@ -51,7 +50,7 @@ function bool(prop: any, def?: boolean, onerr?: () => void ): boolean {
 	return (def === undefined ? null : def);
 }
 
-function string(prop: any, def?: string, onerr?: () => void ): string {
+function string(prop: any, def?: string, onerr?: () => void): string {
 	if (typeof (prop) === 'string') {
 		return prop;
 	}
@@ -76,7 +75,7 @@ function compileRegExp(lexer: monarchCommon.ILexerMin, str: string): RegExp {
 	var n = 0;
 	while (str.indexOf('@') >= 0 && n < 5) { // at most 5 expansions
 		n++;
-		str = str.replace(/@(\w+)/g, function(s, attr?) {
+		str = str.replace(/@(\w+)/g, function (s, attr?) {
 			var sub = '';
 			if (typeof (lexer[attr]) === 'string') {
 				sub = lexer[attr];
@@ -157,27 +156,27 @@ function createGuard(lexer: monarchCommon.ILexerMin, ruleName: string, tkey: str
 	// special case a regexp that matches just words
 	if ((op === '~' || op === '!~') && /^(\w|\|)*$/.test(pat)) {
 		var inWords = objects.createKeywordMatcher(pat.split('|'), lexer.ignoreCase);
-		tester = function(s) { return (op === '~' ? inWords(s) : !inWords(s)); };
+		tester = function (s) { return (op === '~' ? inWords(s) : !inWords(s)); };
 	}
 	else if (op === '@' || op === '!@') {
 		var words = lexer[pat];
 		if (!words) {
 			monarchCommon.throwError(lexer, 'the @ match target \'' + pat + '\' is not defined, in rule: ' + ruleName);
 		}
-		if (!(isArrayOf(function(elem) { return (typeof (elem) === 'string'); }, words))) {
+		if (!(isArrayOf(function (elem) { return (typeof (elem) === 'string'); }, words))) {
 			monarchCommon.throwError(lexer, 'the @ match target \'' + pat + '\' must be an array of strings, in rule: ' + ruleName);
 		}
 		var inWords = objects.createKeywordMatcher(words, lexer.ignoreCase);
-		tester = function(s) { return (op === '@' ? inWords(s) : !inWords(s)); };
+		tester = function (s) { return (op === '@' ? inWords(s) : !inWords(s)); };
 	}
 	else if (op === '~' || op === '!~') {
 		if (pat.indexOf('$') < 0) {
 			// precompile regular expression
 			var re = compileRegExp(lexer, '^' + pat + '$');
-			tester = function(s) { return (op === '~' ? re.test(s) : !re.test(s)); };
+			tester = function (s) { return (op === '~' ? re.test(s) : !re.test(s)); };
 		}
 		else {
-			tester = function(s, id, matches, state) {
+			tester = function (s, id, matches, state) {
 				var re = compileRegExp(lexer, '^' + monarchCommon.substituteMatches(lexer, pat, id, matches, state) + '$');
 				return re.test(s);
 			};
@@ -186,11 +185,11 @@ function createGuard(lexer: monarchCommon.ILexerMin, ruleName: string, tkey: str
 	else { // if (op==='==' || op==='!=') {
 		if (pat.indexOf('$') < 0) {
 			var patx = monarchCommon.fixCase(lexer, pat);
-			tester = function(s) { return (op === '==' ? s === patx : s !== patx); };
+			tester = function (s) { return (op === '==' ? s === patx : s !== patx); };
 		}
 		else {
 			var patx = monarchCommon.fixCase(lexer, pat);
-			tester = function(s, id, matches, state, eos) {
+			tester = function (s, id, matches, state, eos) {
 				var patexp = monarchCommon.substituteMatches(lexer, patx, id, matches, state);
 				return (op === '==' ? s === patexp : s !== patexp);
 			};
@@ -200,14 +199,14 @@ function createGuard(lexer: monarchCommon.ILexerMin, ruleName: string, tkey: str
 	// return the branch object
 	if (scrut === -1) {
 		return {
-			name: tkey, value: val, test: function(id, matches, state, eos) {
+			name: tkey, value: val, test: function (id, matches, state, eos) {
 				return tester(id, id, matches, state, eos);
 			}
 		};
 	}
 	else {
 		return {
-			name: tkey, value: val, test: function(id, matches, state, eos) {
+			name: tkey, value: val, test: function (id, matches, state, eos) {
 				var scrutinee = selectScrutinee(id, matches, state, scrut);
 				return tester(!scrutinee ? '' : scrutinee, id, matches, state, eos);
 			}
@@ -310,7 +309,7 @@ function compileAction(lexer: monarchCommon.ILexerMin, ruleName: string, action:
 					cases.push({ test: null, value: val, name: tkey });
 				}
 				else if (tkey === '@eos') {
-					cases.push({ test: function(id, matches, state, eos) { return eos; }, value: val, name: tkey });
+					cases.push({ test: function (id, matches, state, eos) { return eos; }, value: val, name: tkey });
 				}
 				else {
 					cases.push(createGuard(lexer, ruleName, tkey, val));  // call separate function to avoid local variable capture
@@ -321,7 +320,7 @@ function compileAction(lexer: monarchCommon.ILexerMin, ruleName: string, action:
 		// create a matching function
 		var def = lexer.defaultToken;
 		return {
-			test: function(id, matches, state, eos) {
+			test: function (id, matches, state, eos) {
 				var idx: string;
 				for (idx in cases) {
 					if (cases.hasOwnProperty(idx)) {
@@ -387,20 +386,14 @@ class Rule implements monarchCommon.IRule {
  * (Currently we have no samples that need this so perhaps we should always have
  * jsonStrict to true).
  */
-export function compile(json: ILanguage): monarchCommon.ILexer {
+export function compile(languageId: string, json: IMonarchLanguage): monarchCommon.ILexer {
 	if (!json || typeof (json) !== 'object') {
 		throw new Error('Monarch: expecting a language definition object');
 	}
 
-	// Get names
-	if (typeof (json.name) !== 'string') {
-		throw new Error('Monarch: a language definition must include a string \'name\' attribute');
-	}
-
 	// Create our lexer
 	var lexer: monarchCommon.ILexer = <monarchCommon.ILexer>{};
-	lexer.name = json.name;
-	lexer.displayName = string(json.displayName, lexer.name);
+	lexer.languageId = languageId;
 	lexer.noThrow = false; // raise exceptions during compilation
 	lexer.maxStack = 100;
 
@@ -408,66 +401,14 @@ export function compile(json: ILanguage): monarchCommon.ILexer {
 	lexer.start = string(json.start);
 	lexer.ignoreCase = bool(json.ignoreCase, false);
 
-	lexer.lineComment = string(json.lineComment, '//');
-	lexer.blockCommentStart = string(json.blockCommentStart, '/*');
-	lexer.blockCommentEnd = string(json.blockCommentEnd, '*/');
-	lexer.tokenPostfix = string(json.tokenPostfix, '.' + lexer.name);
+	lexer.tokenPostfix = string(json.tokenPostfix, '.' + lexer.languageId);
 	lexer.defaultToken = string(json.defaultToken, 'source', function () { monarchCommon.throwError(lexer, 'the \'defaultToken\' must be a string'); });
 
 	lexer.usesEmbedded = false; // becomes true if we find a nextEmbedded action
-	lexer.wordDefinition = json.wordDefinition || undefined;
-
-	// COMPAT: with earlier monarch versions
-	if (!lexer.lineComment && (<any>json).lineComments) {
-		if (typeof ((<any>json).lineComments) === 'string') {
-			lexer.lineComment = (<any>json).lineComments;
-		}
-		else if (typeof ((<any>json).lineComments[0]) === 'string') {
-			lexer.lineComment = (<any>json).lineComments[0];
-		}
-	}
-
-	lexer.suggestSupport = {
-		textualCompletions: true,
-		disableAutoTrigger: false,
-		triggerCharacters: [],
-		snippets: []
-	};
-	if (typeof (<any>json).suggestSupport !== 'undefined') {
-		var suggestSupport = (<any>json).suggestSupport;
-
-		if (Array.isArray(suggestSupport.snippets)) {
-			var _snippets: any[] = suggestSupport.snippets;
-			for (var i = 0, len = _snippets.length; i < len; i++) {
-				if (typeof _snippets[i] === 'string') {
-					lexer.suggestSupport.snippets.push({
-						type: 'snippet',
-						label: _snippets[i],
-						codeSnippet: _snippets[i]
-					});
-				} else {
-					lexer.suggestSupport.snippets.push(_snippets[i]);
-				}
-			}
-		}
-
-		if (Array.isArray(suggestSupport.triggerCharacters)) {
-			lexer.suggestSupport.triggerCharacters = suggestSupport.triggerCharacters;
-		}
-
-		if (typeof suggestSupport.textualCompletions !== 'undefined') {
-			lexer.suggestSupport.textualCompletions = suggestSupport.textualCompletions;
-		}
-
-		if (typeof suggestSupport.disableAutoTrigger !== 'undefined') {
-			lexer.suggestSupport.disableAutoTrigger = suggestSupport.disableAutoTrigger;
-		}
-	}
 
 	// For calling compileAction later on
 	var lexerMin: monarchCommon.ILexerMin = <any>json;
-	lexerMin.name = lexer.name;
-	lexerMin.displayName = lexer.displayName;
+	lexerMin.languageId = languageId;
 	lexerMin.ignoreCase = lexer.ignoreCase;
 	lexerMin.noThrow = lexer.noThrow;
 	lexerMin.usesEmbedded = lexer.usesEmbedded;
@@ -571,10 +512,10 @@ export function compile(json: ILanguage): monarchCommon.ILexer {
 			{ open: '(', close: ')', token: 'delimiter.parenthesis' },
 			{ open: '<', close: '>', token: 'delimiter.angle' }];
 	}
-	var brackets : ILanguageBracket[] = [];
+	var brackets: IMonarchLanguageBracket[] = [];
 	for (var bracketIdx in json.brackets) {
 		if (json.brackets.hasOwnProperty(bracketIdx)) {
-			var desc = <any> json.brackets[bracketIdx];
+			var desc = <any>json.brackets[bracketIdx];
 			if (desc && Array.isArray(desc) && desc.length === 3) {
 				desc = { token: desc[2], open: desc[0], close: desc[1] };
 			}
@@ -595,105 +536,6 @@ export function compile(json: ILanguage): monarchCommon.ILexer {
 		}
 	}
 	lexer.brackets = brackets;
-
-	// Set default auto closing pairs
-	var autoClosingPairs: any/*string[][]*/;
-	if (json.autoClosingPairs) {
-		if (!(Array.isArray(<any>json.autoClosingPairs))) {
-			monarchCommon.throwError(lexer, 'the \'autoClosingPairs\' attribute must be an array of string pairs (as arrays)');
-		}
-		autoClosingPairs = json.autoClosingPairs.slice(0);
-	}
-	else {
-		autoClosingPairs = [['"', '"'], ['\'', '\''], ['@brackets']];
-	}
-
-	// set auto closing pairs
-	lexer.autoClosingPairs = [];
-	if (autoClosingPairs) {
-		for (var autoClosingPairIdx in autoClosingPairs) {
-			if (autoClosingPairs.hasOwnProperty(autoClosingPairIdx)) {
-				var pair = autoClosingPairs[autoClosingPairIdx];
-				var openClose: IAutoClosingPairConditional;
-				if (pair === '@brackets' || pair[0] === '@brackets') {
-					var bidx: string;
-					for (bidx in brackets) {
-						if (brackets.hasOwnProperty(bidx)) {
-							if (brackets[bidx].open && brackets[bidx].open.length === 1 &&
-								brackets[bidx].close && brackets[bidx].close.length === 1) {
-								openClose = { open: brackets[bidx].open, close: brackets[bidx].close, notIn:['string', 'comment'] };
-								lexer.autoClosingPairs.push(openClose);
-							}
-						}
-					}
-				}
-				else if (Array.isArray(pair) && pair.length === 2 &&
-					typeof (pair[0]) === 'string' && pair[0].length === 1 &&
-					typeof (pair[1]) === 'string' && pair[1].length === 1) {
-					openClose = { open: monarchCommon.fixCase(lexer, pair[0]), close: monarchCommon.fixCase(lexer, pair[1]), notIn:['string', 'comment'] };
-					lexer.autoClosingPairs.push(openClose);
-				}
-				else if (typeof (pair.open) === 'string' && pair.open.length === 1 &&
-					typeof (pair.close) === 'string' && pair.close.length === 1) {
-					openClose = { open: monarchCommon.fixCase(lexer, pair.open[0]), close: monarchCommon.fixCase(lexer, pair.close[0]), notIn:['string', 'comment'] };
-					lexer.autoClosingPairs.push(openClose);
-				}
-				else {
-					monarchCommon.throwError(lexer, 'every element in an \'autoClosingPairs\' array must be a pair of 1 character strings, or a \'@brackets\' directive');
-				}
-			}
-		}
-	}
-
-	// Set enhanced brackets
-	// var enhancedBrackets : IRegexBracketPair[] = [];
-	// if (json.enhancedBrackets) {
-	// 	if (!(Array.isArray(<any>json.enhancedBrackets))) {
-	// 		monarchCommon.throwError(lexer, 'the \'enhancedBrackets\' attribute must be defined as an array');
-	// 	}
-
-	// 	for (var bracketIdx in json.enhancedBrackets) {
-	// 		if (json.enhancedBrackets.hasOwnProperty(bracketIdx)) {
-	// 			var desc = <any> json.enhancedBrackets[bracketIdx];
-	// 			if (desc.hasOwnProperty('openTrigger') && typeof (desc.openTrigger) !== 'string') {
-	// 				monarchCommon.throwError(lexer, 'openTrigger in the \'enhancedBrackets\' array must be a string');
-	// 			}
-	// 			if (desc.hasOwnProperty('open') && !(desc.open instanceof RegExp)) {
-	// 				monarchCommon.throwError(lexer, 'open in the \'enhancedBrackets\' array must be a regex');
-	// 			}
-	// 			if (desc.hasOwnProperty('closeComplete') && typeof (desc.closeComplete) !== 'string') {
-	// 				monarchCommon.throwError(lexer, 'closeComplete in the \'enhancedBrackets\' array must be a string');
-	// 			}
-	// 			if (desc.hasOwnProperty('matchCase') && typeof (desc.matchCase) !== 'boolean') {
-	// 				monarchCommon.throwError(lexer, 'matchCase in the \'enhancedBrackets\' array must be a boolean');
-	// 			}
-	// 			if (desc.hasOwnProperty('closeTrigger') && typeof (desc.closeTrigger) !== 'string') {
-	// 				monarchCommon.throwError(lexer, 'closeTrigger in the \'enhancedBrackets\' array must be a string');
-	// 			}
-	// 			if (desc.hasOwnProperty('close') && !(desc.close instanceof RegExp)) {
-	// 				monarchCommon.throwError(lexer, 'close in the \'enhancedBrackets\' array must be a regex');
-	// 			}
-	// 			if (desc.hasOwnProperty('tokenType')) {
-	// 				if (typeof (desc.tokenType) !== 'string') {
-	// 					monarchCommon.throwError(lexer, 'tokenType in the \'enhancedBrackets\' array must be a string');
-	// 				}
-	// 				else {
-	// 					desc.tokenType += lexer.tokenPostfix;
-	// 				}
-	// 			}
-	// 			enhancedBrackets.push(desc);
-	// 		}
-	// 	}
-	// }
-	// lexer.enhancedBrackets = enhancedBrackets;
-
-	var standardBrackets: CharacterPair[] = [];
-	for (var i = 0; i < brackets.length; ++i) {
-		standardBrackets.push([brackets[i].open, brackets[i].close]);
-	}
-	lexer.standardBrackets = standardBrackets;
-
-	lexer.outdentTriggers = string(json.outdentTriggers, '');
 
 	// Disable throw so the syntax highlighter goes, no matter what
 	lexer.noThrow = true;

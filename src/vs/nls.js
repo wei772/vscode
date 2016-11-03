@@ -17,7 +17,7 @@
 var _nlsPluginGlobal = this;
 var NLSLoaderPlugin;
 (function (NLSLoaderPlugin) {
-    var global = _nlsPluginGlobal;
+    var global = _nlsPluginGlobal || {};
     var Resources = global.Plugin && global.Plugin.Resources ? global.Plugin.Resources : undefined;
     var DEFAULT_TAG = 'i-default';
     var IS_PSEUDO = (global && global.document && global.document.location && global.document.location.hash.indexOf('pseudo=true') >= 0);
@@ -81,7 +81,7 @@ var NLSLoaderPlugin;
                 });
             }
             else {
-                var suffix;
+                var suffix = void 0;
                 if (Resources && Resources.getString) {
                     suffix = '.nls.keys';
                     req([name + suffix], function (keyMap) {
@@ -175,7 +175,7 @@ var NLSLoaderPlugin;
         NLSPlugin.BUILD_MAP = {};
         NLSPlugin.BUILD_MAP_KEYS = {};
         return NLSPlugin;
-    })();
+    }());
     NLSLoaderPlugin.NLSPlugin = NLSPlugin;
     (function () {
         define('vs/nls', new NLSPlugin());

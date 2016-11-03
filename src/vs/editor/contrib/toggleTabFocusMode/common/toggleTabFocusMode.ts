@@ -5,36 +5,32 @@
 'use strict';
 
 import * as nls from 'vs/nls';
-import {KeyCode, KeyMod} from 'vs/base/common/keyCodes';
-import {TPromise} from 'vs/base/common/winjs.base';
-import {EditorAction} from 'vs/editor/common/editorAction';
-import {Behaviour} from 'vs/editor/common/editorActionEnablement';
-import {ICommonCodeEditor, IEditorActionDescriptorData} from 'vs/editor/common/editorCommon';
-import {CommonEditorRegistry, ContextKey, EditorActionDescriptor} from 'vs/editor/common/editorCommonExtensions';
+import { KeyCode, KeyMod } from 'vs/base/common/keyCodes';
+import { ICommonCodeEditor } from 'vs/editor/common/editorCommon';
+import { editorAction, ServicesAccessor, EditorAction } from 'vs/editor/common/editorCommonExtensions';
+import { TabFocus } from 'vs/editor/common/config/commonEditorConfig';
 
+@editorAction
 export class ToggleTabFocusModeAction extends EditorAction {
 
 	public static ID = 'editor.action.toggleTabFocusMode';
 
-	constructor(descriptor:IEditorActionDescriptorData, editor:ICommonCodeEditor) {
-		super(descriptor, editor, Behaviour.TextFocus);
+	constructor() {
+		super({
+			id: ToggleTabFocusModeAction.ID,
+			label: nls.localize('toggle.tabfocusmode', "Toggle Use of Tab Key for Setting Focus"),
+			alias: 'Toggle Use of Tab Key for Setting Focus',
+			precondition: null,
+			kbOpts: {
+				kbExpr: null,
+				primary: KeyMod.CtrlCmd | KeyCode.KEY_M,
+				mac: { primary: KeyMod.WinCtrl | KeyMod.Shift | KeyCode.KEY_M }
+			}
+		});
 	}
 
-	public run():TPromise<boolean> {
-
-		if(this.editor.getConfiguration().tabFocusMode) {
-			this.editor.updateOptions({tabFocusMode: false});
-		} else {
-			this.editor.updateOptions({tabFocusMode: true});
-		}
-
-		return TPromise.as(true);
+	public run(accessor: ServicesAccessor, editor: ICommonCodeEditor): void {
+		let oldValue = TabFocus.getTabFocusMode();
+		TabFocus.setTabFocusMode(!oldValue);
 	}
 }
-
-// register actions
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(ToggleTabFocusModeAction, ToggleTabFocusModeAction.ID, nls.localize('toggle.tabfocusmode', "Toggle Use of Tab Key for Setting Focus"), {
-	context: ContextKey.EditorTextFocus,
-	primary: KeyMod.CtrlCmd | KeyCode.KEY_M,
-	mac: { primary: KeyMod.WinCtrl | KeyMod.Shift | KeyCode.KEY_M }
-}, 'Toggle Use of Tab Key for Setting Focus'));

@@ -5,26 +5,37 @@
 
 'use strict';
 
-import {illegalArgument} from 'vs/base/common/errors';
-import {TPromise} from 'vs/base/common/winjs.base';
-import {IModel, IPosition} from 'vs/editor/common/editorCommon';
-import {CommonEditorRegistry} from 'vs/editor/common/editorCommonExtensions';
-import {IParameterHints, ParameterHintsRegistry} from 'vs/editor/common/modes';
+import { TPromise } from 'vs/base/common/winjs.base';
+import { onUnexpectedError } from 'vs/base/common/errors';
+import { IReadOnlyModel } from 'vs/editor/common/editorCommon';
+import { CommonEditorRegistry } from 'vs/editor/common/editorCommonExtensions';
+import { SignatureHelp, SignatureHelpProviderRegistry } from 'vs/editor/common/modes';
+import { asWinJsPromise, sequence } from 'vs/base/common/async';
+import { Position } from 'vs/editor/common/core/position';
+import { RawContextKey } from 'vs/platform/contextkey/common/contextkey';
 
-export function getParameterHints(model:IModel, position:IPosition, triggerCharacter: string): TPromise<IParameterHints> {
+export const Context = {
+	Visible: new RawContextKey<boolean>('parameterHintsVisible', false),
+	MultipleSignatures: new RawContextKey<boolean>('parameterHintsMultipleSignatures', false),
+};
 
-	let support = ParameterHintsRegistry.ordered(model)[0];
-	if (!support) {
-		return TPromise.as(undefined);
-	}
+export function provideSignatureHelp(model: IReadOnlyModel, position: Position): TPromise<SignatureHelp> {
 
-	return support.getParameterHints(model.getAssociatedResource(), position, triggerCharacter);
+	const supports = SignatureHelpProviderRegistry.ordered(model);
+	let result: SignatureHelp;
+
+	return sequence(supports.map(support => () => {
+
+		if (result) {
+			// stop when there is a result
+			return;
+		}
+
+		return asWinJsPromise(token => support.provideSignatureHelp(model, position, token)).then(thisResult => {
+			result = thisResult;
+		}, onUnexpectedError);
+
+	})).then(() => result);
 }
 
-CommonEditorRegistry.registerDefaultLanguageCommand('_executeSignatureHelpProvider', function(model, position, args) {
-	let {triggerCharacter} = args;
-	if (triggerCharacter && typeof triggerCharacter !== 'string') {
-		throw illegalArgument('triggerCharacter');
-	}
-	return getParameterHints(model, position, triggerCharacter);
-});
+CommonEditorRegistry.registerDefaultLanguageCommand('_executeSignatureHelpProvider', provideSignatureHelp);

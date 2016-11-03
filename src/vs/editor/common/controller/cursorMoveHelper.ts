@@ -4,88 +4,109 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {IInternalIndentationOptions, IPosition, IEditorSelection} from 'vs/editor/common/editorCommon';
-import {Selection} from 'vs/editor/common/core/selection';
+import { Selection } from 'vs/editor/common/core/selection';
+import { CharCode } from 'vs/base/common/charCode';
+import * as strings from 'vs/base/common/strings';
 
-export interface IMoveResult {
-	lineNumber:number;
-	column:number;
-	leftoverVisibleColumns: number;
-}
+export class CursorMoveConfiguration {
+	_cursorMoveConfigurationBrand: void;
 
-export interface IViewColumnSelectResult {
-	viewSelections: IEditorSelection[];
-	reversed: boolean;
-}
-export interface IColumnSelectResult extends IViewColumnSelectResult {
-	selections: IEditorSelection[];
-	toLineNumber: number;
-	toVisualColumn: number;
+	public readonly tabSize: number;
+	public readonly pageSize: number;
+
+	constructor(
+		tabSize: number,
+		pageSize: number
+	) {
+		this.tabSize = tabSize;
+		this.pageSize = pageSize;
+	}
 }
 
 export interface ICursorMoveHelperModel {
 	getLineCount(): number;
-	getLineFirstNonWhitespaceColumn(lineNumber:number): number;
-	getLineMinColumn(lineNumber:number): number;
-	getLineMaxColumn(lineNumber:number): number;
-	getLineLastNonWhitespaceColumn(lineNumber:number): number;
-	getLineContent(lineNumber:number): string;
+	getLineContent(lineNumber: number): string;
+	getLineMinColumn(lineNumber: number): number;
+	getLineMaxColumn(lineNumber: number): number;
+	getLineFirstNonWhitespaceColumn(lineNumber: number): number;
+	getLineLastNonWhitespaceColumn(lineNumber: number): number;
 }
 
-export interface IConfiguration {
-	getIndentationOptions(): IInternalIndentationOptions;
+export class CursorMoveResult {
+	_cursorMoveResultBrand: void;
+
+	public readonly lineNumber: number;
+	public readonly column: number;
+	public readonly leftoverVisibleColumns: number;
+
+	constructor(lineNumber: number, column: number, leftoverVisibleColumns: number) {
+		this.lineNumber = lineNumber;
+		this.column = column;
+		this.leftoverVisibleColumns = leftoverVisibleColumns;
+	}
 }
 
-function isHighSurrogate(model, lineNumber, column) {
-	var code = model.getLineContent(lineNumber).charCodeAt(column - 1);
-	return 0xD800 <= code && code <= 0xDBFF;
-}
+/**
+ * Common operations that work and make sense both on the model and on the view model.
+ */
+export class CursorMove {
 
-function isLowSurrogate(model, lineNumber, column) {
-	var code = model.getLineContent(lineNumber).charCodeAt(column - 1);
-	return 0xDC00 <= code && code <= 0xDFFF;
-}
-
-export class CursorMoveHelper {
-
-	private configuration: IConfiguration;
-
-	constructor(configuration:IConfiguration) {
-		this.configuration = configuration;
+	private static _isLowSurrogate(model: ICursorMoveHelperModel, lineNumber: number, charOffset: number): boolean {
+		let lineContent = model.getLineContent(lineNumber);
+		if (charOffset < 0 || charOffset >= lineContent.length) {
+			return false;
+		}
+		return strings.isLowSurrogate(lineContent.charCodeAt(charOffset));
 	}
 
-	public getLeftOfPosition(model:ICursorMoveHelperModel, lineNumber:number, column:number): IPosition {
+	private static _isHighSurrogate(model: ICursorMoveHelperModel, lineNumber: number, charOffset: number): boolean {
+		let lineContent = model.getLineContent(lineNumber);
+		if (charOffset < 0 || charOffset >= lineContent.length) {
+			return false;
+		}
+		return strings.isHighSurrogate(lineContent.charCodeAt(charOffset));
+	}
+
+	private static _isInsideSurrogatePair(model: ICursorMoveHelperModel, lineNumber: number, column: number): boolean {
+		return this._isHighSurrogate(model, lineNumber, column - 2);
+	}
+
+	public static left(config: CursorMoveConfiguration, model: ICursorMoveHelperModel, lineNumber: number, column: number): CursorMoveResult {
 
 		if (column > model.getLineMinColumn(lineNumber)) {
-			column = column - (isLowSurrogate(model, lineNumber, column - 1) ? 2 : 1);
+			if (this._isLowSurrogate(model, lineNumber, column - 2)) {
+				// character before column is a low surrogate
+				column = column - 2;
+			} else {
+				column = column - 1;
+			}
 		} else if (lineNumber > 1) {
 			lineNumber = lineNumber - 1;
 			column = model.getLineMaxColumn(lineNumber);
 		}
 
-		return {
-			lineNumber: lineNumber,
-			column: column
-		};
+		return new CursorMoveResult(lineNumber, column, 0);
 	}
 
-	public getRightOfPosition(model:ICursorMoveHelperModel, lineNumber:number, column:number): IPosition {
+	public static right(config: CursorMoveConfiguration, model: ICursorMoveHelperModel, lineNumber: number, column: number): CursorMoveResult {
 
 		if (column < model.getLineMaxColumn(lineNumber)) {
-			column = column + (isHighSurrogate(model, lineNumber, column) ? 2 : 1);
+			if (this._isHighSurrogate(model, lineNumber, column - 1)) {
+				// character after column is a high surrogate
+				column = column + 2;
+			} else {
+				column = column + 1;
+			}
 		} else if (lineNumber < model.getLineCount()) {
 			lineNumber = lineNumber + 1;
 			column = model.getLineMinColumn(lineNumber);
 		}
 
-		return {
-			lineNumber: lineNumber,
-			column: column
-		};
+		return new CursorMoveResult(lineNumber, column, 0);
 	}
 
-	public getPositionUp(model:ICursorMoveHelperModel, lineNumber:number, column:number, leftoverVisibleColumns:number, count:number, allowMoveOnFirstLine:boolean): IMoveResult {
-		var currentVisibleColumn = this.visibleColumnFromColumn(model, lineNumber, column) + leftoverVisibleColumns;
+	public static up(config: CursorMoveConfiguration, model: ICursorMoveHelperModel, lineNumber: number, column: number, leftoverVisibleColumns: number, count: number, allowMoveOnFirstLine: boolean): CursorMoveResult {
+		const currentVisibleColumn = this.visibleColumnFromColumn(model.getLineContent(lineNumber), column, config.tabSize) + leftoverVisibleColumns;
 
 		lineNumber = lineNumber - count;
 		if (lineNumber < 1) {
@@ -94,22 +115,24 @@ export class CursorMoveHelper {
 				column = model.getLineMinColumn(lineNumber);
 			} else {
 				column = Math.min(model.getLineMaxColumn(lineNumber), column);
+				if (this._isInsideSurrogatePair(model, lineNumber, column)) {
+					column = column - 1;
+				}
 			}
 		} else {
-			column = this.columnFromVisibleColumn(model, lineNumber, currentVisibleColumn);
+			column = this.columnFromVisibleColumn(config, model, lineNumber, currentVisibleColumn);
+			if (this._isInsideSurrogatePair(model, lineNumber, column)) {
+				column = column - 1;
+			}
 		}
-		leftoverVisibleColumns = currentVisibleColumn - this.visibleColumnFromColumn(model, lineNumber, column);
 
+		leftoverVisibleColumns = currentVisibleColumn - this.visibleColumnFromColumn(model.getLineContent(lineNumber), column, config.tabSize);
 
-		return {
-			lineNumber: lineNumber,
-			column: column,
-			leftoverVisibleColumns: leftoverVisibleColumns
-		};
+		return new CursorMoveResult(lineNumber, column, leftoverVisibleColumns);
 	}
 
-	public getPositionDown(model:ICursorMoveHelperModel, lineNumber:number, column:number, leftoverVisibleColumns:number, count:number, allowMoveOnLastLine:boolean): IMoveResult {
-		var currentVisibleColumn = this.visibleColumnFromColumn(model, lineNumber, column) + leftoverVisibleColumns;
+	public static down(config: CursorMoveConfiguration, model: ICursorMoveHelperModel, lineNumber: number, column: number, leftoverVisibleColumns: number, count: number, allowMoveOnLastLine: boolean): CursorMoveResult {
+		const currentVisibleColumn = this.visibleColumnFromColumn(model.getLineContent(lineNumber), column, config.tabSize) + leftoverVisibleColumns;
 
 		lineNumber = lineNumber + count;
 		var lineCount = model.getLineCount();
@@ -119,26 +142,126 @@ export class CursorMoveHelper {
 				column = model.getLineMaxColumn(lineNumber);
 			} else {
 				column = Math.min(model.getLineMaxColumn(lineNumber), column);
+				if (this._isInsideSurrogatePair(model, lineNumber, column)) {
+					column = column - 1;
+				}
 			}
 		} else {
-			column = this.columnFromVisibleColumn(model, lineNumber, currentVisibleColumn);
+			column = this.columnFromVisibleColumn(config, model, lineNumber, currentVisibleColumn);
+			if (this._isInsideSurrogatePair(model, lineNumber, column)) {
+				column = column - 1;
+			}
 		}
-		leftoverVisibleColumns = currentVisibleColumn - this.visibleColumnFromColumn(model, lineNumber, column);
 
-		return {
-			lineNumber: lineNumber,
-			column: column,
-			leftoverVisibleColumns: leftoverVisibleColumns
-		};
+		leftoverVisibleColumns = currentVisibleColumn - this.visibleColumnFromColumn(model.getLineContent(lineNumber), column, config.tabSize);
+
+		return new CursorMoveResult(lineNumber, column, leftoverVisibleColumns);
 	}
 
-	public columnSelect(model:ICursorMoveHelperModel, fromLineNumber:number, fromVisibleColumn:number, toLineNumber:number, toVisibleColumn:number): IViewColumnSelectResult {
+	public static visibleColumnFromColumn(lineContent: string, column: number, tabSize: number): number {
+		let endOffset = lineContent.length;
+		if (endOffset > column - 1) {
+			endOffset = column - 1;
+		}
+
+		let result = 0;
+		for (let i = 0; i < endOffset; i++) {
+			let charCode = lineContent.charCodeAt(i);
+			if (charCode === CharCode.Tab) {
+				result = this.nextTabStop(result, tabSize);
+			} else {
+				result = result + 1;
+			}
+		}
+		return result;
+	}
+
+	private static _columnFromVisibleColumn(lineContent: string, visibleColumn: number, tabSize: number): number {
+		if (visibleColumn <= 0) {
+			return 1;
+		}
+
+		const lineLength = lineContent.length;
+
+		let beforeVisibleColumn = 0;
+		for (let i = 0; i < lineLength; i++) {
+			let charCode = lineContent.charCodeAt(i);
+
+			let afterVisibleColumn: number;
+			if (charCode === CharCode.Tab) {
+				afterVisibleColumn = this.nextTabStop(beforeVisibleColumn, tabSize);
+			} else {
+				afterVisibleColumn = beforeVisibleColumn + 1;
+			}
+
+			if (afterVisibleColumn >= visibleColumn) {
+				let prevDelta = visibleColumn - beforeVisibleColumn;
+				let afterDelta = afterVisibleColumn - visibleColumn;
+				if (afterDelta < prevDelta) {
+					return i + 2;
+				} else {
+					return i + 1;
+				}
+			}
+
+			beforeVisibleColumn = afterVisibleColumn;
+		}
+
+		// walked the entire string
+		return lineLength + 1;
+	}
+
+	public static columnFromVisibleColumn(config: CursorMoveConfiguration, model: ICursorMoveHelperModel, lineNumber: number, visibleColumn: number): number {
+		let result = this._columnFromVisibleColumn(model.getLineContent(lineNumber), visibleColumn, config.tabSize);
+
+		let minColumn = model.getLineMinColumn(lineNumber);
+		if (result < minColumn) {
+			return minColumn;
+		}
+
+		let maxColumn = model.getLineMaxColumn(lineNumber);
+		if (result > maxColumn) {
+			return maxColumn;
+		}
+
+		return result;
+	}
+
+	/**
+	 * ATTENTION: This works with 0-based columns (as oposed to the regular 1-based columns)
+	 */
+	public static nextTabStop(visibleColumn: number, tabSize: number): number {
+		return visibleColumn + tabSize - visibleColumn % tabSize;
+	}
+}
+
+
+export interface IViewColumnSelectResult {
+	viewSelections: Selection[];
+	reversed: boolean;
+}
+export interface IColumnSelectResult extends IViewColumnSelectResult {
+	selections: Selection[];
+	toLineNumber: number;
+	toVisualColumn: number;
+}
+
+
+export class CursorMoveHelper {
+
+	private readonly _config: CursorMoveConfiguration;
+
+	constructor(config: CursorMoveConfiguration) {
+		this._config = config;
+	}
+
+	public columnSelect(model: ICursorMoveHelperModel, fromLineNumber: number, fromVisibleColumn: number, toLineNumber: number, toVisibleColumn: number): IViewColumnSelectResult {
 		let lineCount = Math.abs(toLineNumber - fromLineNumber) + 1;
 		let reversed = (fromLineNumber > toLineNumber);
 		let isRTL = (fromVisibleColumn > toVisibleColumn);
 		let isLTR = (fromVisibleColumn < toVisibleColumn);
 
-		let result: IEditorSelection[] = [];
+		let result: Selection[] = [];
 
 		// console.log(`fromVisibleColumn: ${fromVisibleColumn}, toVisibleColumn: ${toVisibleColumn}`);
 
@@ -179,7 +302,7 @@ export class CursorMoveHelper {
 		};
 	}
 
-	public getColumnAtBeginningOfLine(model:ICursorMoveHelperModel, lineNumber:number, column:number): number {
+	public getColumnAtBeginningOfLine(model: ICursorMoveHelperModel, lineNumber: number, column: number): number {
 		var firstNonBlankColumn = model.getLineFirstNonWhitespaceColumn(lineNumber) || 1;
 		var minColumn = model.getLineMinColumn(lineNumber);
 
@@ -192,7 +315,7 @@ export class CursorMoveHelper {
 		return column;
 	}
 
-	public getColumnAtEndOfLine(model:ICursorMoveHelperModel, lineNumber:number, column:number): number {
+	public getColumnAtEndOfLine(model: ICursorMoveHelperModel, lineNumber: number, column: number): number {
 		var maxColumn = model.getLineMaxColumn(lineNumber);
 		var lastNonBlankColumn = model.getLineLastNonWhitespaceColumn(lineNumber) || maxColumn;
 
@@ -205,62 +328,33 @@ export class CursorMoveHelper {
 		return column;
 	}
 
-	public visibleColumnFromColumn(model:ICursorMoveHelperModel, lineNumber:number, column:number): number {
-		return CursorMoveHelper.visibleColumnFromColumn(model, lineNumber, column, this.configuration.getIndentationOptions().tabSize);
+	public visibleColumnFromColumn(model: ICursorMoveHelperModel, lineNumber: number, column: number): number {
+		return CursorMoveHelper.visibleColumnFromColumn(model, lineNumber, column, this._config.tabSize);
 	}
 
-	public static visibleColumnFromColumn(model:ICursorMoveHelperModel, lineNumber:number, column:number, tabSize:number): number {
+	public static visibleColumnFromColumn(model: ICursorMoveHelperModel, lineNumber: number, column: number, tabSize: number): number {
 		return CursorMoveHelper.visibleColumnFromColumn2(model.getLineContent(lineNumber), column, tabSize);
 	}
 
-	public static visibleColumnFromColumn2(line:string, column:number, tabSize:number): number {
-		var result = 0;
-		for (var i = 0; i < column - 1; i++) {
-			result = (line.charAt(i) === '\t') ? CursorMoveHelper.nextTabColumn(result, tabSize) : result + 1;
-		}
-		return result;
+	public static visibleColumnFromColumn2(line: string, column: number, tabSize: number): number {
+		return CursorMove.visibleColumnFromColumn(line, column, tabSize);
 	}
 
-	public columnFromVisibleColumn(model:ICursorMoveHelperModel, lineNumber:number, visibleColumn:number): number {
-		var line = model.getLineContent(lineNumber);
-
-		var lastVisibleColumn = -1;
-		var thisVisibleColumn = 0;
-
-		for (var i = 0; i < line.length && thisVisibleColumn <= visibleColumn; i++) {
-			lastVisibleColumn = thisVisibleColumn;
-			thisVisibleColumn = (line.charAt(i) === '\t') ? CursorMoveHelper.nextTabColumn(thisVisibleColumn, this.configuration.getIndentationOptions().tabSize) : thisVisibleColumn + 1;
-		}
-
-		// Choose the closest
-		thisVisibleColumn = Math.abs(visibleColumn - thisVisibleColumn);
-		lastVisibleColumn = Math.abs(visibleColumn - lastVisibleColumn);
-
-		var result: number;
-		if (thisVisibleColumn < lastVisibleColumn) {
-			result = i + 1;
-		} else {
-			result = i;
-		}
-
-		var minColumn = model.getLineMinColumn(lineNumber);
-		if (result < minColumn) {
-			result = minColumn;
-		}
-		return result;
+	public columnFromVisibleColumn(model: ICursorMoveHelperModel, lineNumber: number, visibleColumn: number): number {
+		return CursorMove.columnFromVisibleColumn(this._config, model, lineNumber, visibleColumn);
 	}
 
 	/**
 	 * ATTENTION: This works with 0-based columns (as oposed to the regular 1-based columns)
 	 */
-	public static nextTabColumn(column:number, tabSize:number): number {
-		return column + tabSize - column % tabSize;
+	public static nextTabColumn(column: number, tabSize: number): number {
+		return CursorMove.nextTabStop(column, tabSize);
 	}
 
 	/**
 	 * ATTENTION: This works with 0-based columns (as oposed to the regular 1-based columns)
 	 */
-	public static prevTabColumn(column:number, tabSize:number): number {
-		return column - 1 - ( column - 1 ) % tabSize;
+	public static prevTabColumn(column: number, tabSize: number): number {
+		return column - 1 - (column - 1) % tabSize;
 	}
 }

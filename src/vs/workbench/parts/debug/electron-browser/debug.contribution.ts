@@ -7,26 +7,36 @@ import 'vs/css!../browser/media/debug.contribution';
 import 'vs/css!../browser/media/debugHover';
 import nls = require('vs/nls');
 import { KeyMod, KeyCode } from 'vs/base/common/keyCodes';
-import editorcommon = require('vs/editor/common/editorCommon');
-import { CommonEditorRegistry, ContextKey, EditorActionDescriptor } from 'vs/editor/common/editorCommonExtensions';
 import { SyncActionDescriptor } from 'vs/platform/actions/common/actions';
 import platform = require('vs/platform/platform');
 import { registerSingleton } from 'vs/platform/instantiation/common/extensions';
 import { KeybindingsRegistry } from 'vs/platform/keybinding/common/keybindingsRegistry';
-import { KbExpr, IKeybindings } from 'vs/platform/keybinding/common/keybindingService';
-import { EditorBrowserRegistry } from 'vs/editor/browser/editorBrowserExtensions';
+import { IKeybindings } from 'vs/platform/keybinding/common/keybinding';
+import { ServicesAccessor } from 'vs/platform/instantiation/common/instantiation';
+import { SyncDescriptor } from 'vs/platform/instantiation/common/descriptors';
+import * as confregistry from 'vs/platform/configuration/common/configurationRegistry';
 import wbaregistry = require('vs/workbench/common/actionRegistry');
 import viewlet = require('vs/workbench/browser/viewlet');
 import panel = require('vs/workbench/browser/panel');
-import { VariablesView, WatchExpressionsView, CallStackView, BreakpointsView } from 'vs/workbench/parts/debug/browser/debugViews';
+import { DebugViewRegistry } from 'vs/workbench/parts/debug/browser/debugViewRegistry';
+import { VariablesView, WatchExpressionsView, CallStackView, BreakpointsView } from 'vs/workbench/parts/debug/electron-browser/debugViews';
 import wbext = require('vs/workbench/common/contributions');
+import { EditorDescriptor } from 'vs/workbench/browser/parts/editor/baseEditor';
 import * as debug from 'vs/workbench/parts/debug/common/debug';
+import { IPartService } from 'vs/workbench/services/part/common/partService';
+import { IPanelService } from 'vs/workbench/services/panel/common/panelService';
 import { DebugEditorModelManager } from 'vs/workbench/parts/debug/browser/debugEditorModelManager';
-import dbgactions = require('vs/workbench/parts/debug/electron-browser/debugActions');
+import {
+	StepOverAction, ClearReplAction, FocusReplAction, StepIntoAction, StepOutAction, StartAction, StepBackAction, RestartAction, ContinueAction, StopAction, DisconnectAction, PauseAction, AddFunctionBreakpointAction,
+	ConfigureAction, DisableAllBreakpointsAction, EnableAllBreakpointsAction, RemoveAllBreakpointsAction, RunAction, ReapplyBreakpointsAction
+} from 'vs/workbench/parts/debug/browser/debugActions';
 import debugwidget = require('vs/workbench/parts/debug/browser/debugActionsWidget');
 import service = require('vs/workbench/parts/debug/electron-browser/debugService');
-import { DebugEditorContribution } from 'vs/workbench/parts/debug/browser/debugEditorContribution';
+import { DebugErrorEditorInput } from 'vs/workbench/parts/debug/browser/debugEditorInputs';
+import { DebugErrorEditor } from 'vs/workbench/parts/debug/browser/debugErrorEditor';
+import 'vs/workbench/parts/debug/electron-browser/debugEditorContribution';
 import { IViewletService } from 'vs/workbench/services/viewlet/common/viewletService';
+import { IEditorRegistry, Extensions as EditorExtensions } from 'vs/workbench/common/editor';
 import { IWorkbenchEditorService } from 'vs/workbench/services/editor/common/editorService';
 
 import IDebugService = debug.IDebugService;
@@ -45,20 +55,19 @@ class OpenDebugViewletAction extends viewlet.ToggleViewletAction {
 	}
 }
 
-EditorBrowserRegistry.registerEditorContribution(DebugEditorContribution);
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(dbgactions.ToggleBreakpointAction, dbgactions.ToggleBreakpointAction.ID, nls.localize('toggleBreakpointAction', "Debug: Toggle Breakpoint"), {
-	context: ContextKey.EditorTextFocus,
-	primary: KeyCode.F9
-}, 'Debug: Toggle Breakpoint'));
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(dbgactions.ShowDebugHoverAction, dbgactions.ShowDebugHoverAction.ID, nls.localize('showDebugHover', "Debug: Show Hover"), {
-	context: ContextKey.EditorTextFocus,
-	kbExpr: KbExpr.and(KbExpr.has(debug.CONTEXT_IN_DEBUG_MODE), KbExpr.has(editorcommon.KEYBINDING_CONTEXT_EDITOR_TEXT_FOCUS)),
-	primary: KeyMod.chord(KeyMod.CtrlCmd | KeyCode.KEY_K, KeyMod.CtrlCmd | KeyCode.KEY_I)
-}, 'Debug: Show Hover'));
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(dbgactions.EditorConditionalBreakpointAction, dbgactions.EditorConditionalBreakpointAction.ID, nls.localize('conditionalBreakpointEditorAction', "Debug: Conditional Breakpoint"), void 0, 'Debug: Conditional Breakpoint'));
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(dbgactions.SelectionToReplAction, dbgactions.SelectionToReplAction.ID, nls.localize('debugEvaluate', "Debug: Evaluate"), void 0, 'Debug: Evaluate'));
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(dbgactions.SelectionToWatchExpressionsAction, dbgactions.SelectionToWatchExpressionsAction.ID, nls.localize('addToWatch', "Debug: Add to Watch"), void 0, 'Debug: Add to Watch'));
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(dbgactions.RunToCursorAction, dbgactions.RunToCursorAction.ID, nls.localize('runToCursor', "Debug: Run to Cursor"), void 0, 'Debug: Run to Cursor'));
+class OpenDebugPanelAction extends panel.TogglePanelAction {
+	public static ID = 'workbench.debug.action.toggleRepl';
+	public static LABEL = nls.localize('toggleDebugPanel', "Debug Console");
+
+	constructor(
+		id: string,
+		label: string,
+		@IPanelService panelService: IPanelService,
+		@IPartService partService: IPartService
+	) {
+		super(id, label, debug.REPL_ID, panelService, partService);
+	}
+}
 
 // register viewlet
 (<viewlet.ViewletRegistry>platform.Registry.as(viewlet.Extensions.Viewlets)).registerViewlet(new viewlet.ViewletDescriptor(
@@ -73,25 +82,30 @@ CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(dbgactions.
 const openViewletKb: IKeybindings = {
 	primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_D
 };
+const openPanelKb: IKeybindings = {
+	primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_Y
+};
 
 // register repl panel
 (<panel.PanelRegistry>platform.Registry.as(panel.Extensions.Panels)).registerPanel(new panel.PanelDescriptor(
-	'vs/workbench/parts/debug/browser/repl',
+	'vs/workbench/parts/debug/electron-browser/repl',
 	'Repl',
 	debug.REPL_ID,
-	nls.localize('debugConsole', "Debug Console"),
-	'repl'
+	nls.localize({ comment: ['Debug is a noun in this context, not a verb.'], key: 'debugPanel' }, 'Debug Console'),
+	'repl',
+	30
 ));
 (<panel.PanelRegistry>platform.Registry.as(panel.Extensions.Panels)).setDefaultPanelId(debug.REPL_ID);
 
 // Register default debug views
-debug.DebugViewRegistry.registerDebugView(VariablesView, 10);
-debug.DebugViewRegistry.registerDebugView(WatchExpressionsView, 20);
-debug.DebugViewRegistry.registerDebugView(CallStackView, 30);
-debug.DebugViewRegistry.registerDebugView(BreakpointsView, 40);
+DebugViewRegistry.registerDebugView(VariablesView, 10);
+DebugViewRegistry.registerDebugView(WatchExpressionsView, 20);
+DebugViewRegistry.registerDebugView(CallStackView, 30);
+DebugViewRegistry.registerDebugView(BreakpointsView, 40);
 
 // register action to open viewlet
-const registry = (<wbaregistry.IWorkbenchActionRegistry> platform.Registry.as(wbaregistry.Extensions.WorkbenchActions));
+const registry = (<wbaregistry.IWorkbenchActionRegistry>platform.Registry.as(wbaregistry.Extensions.WorkbenchActions));
+registry.registerWorkbenchAction(new SyncActionDescriptor(OpenDebugPanelAction, OpenDebugPanelAction.ID, OpenDebugPanelAction.LABEL, openPanelKb), 'View: Debug Console', nls.localize('view', "View"));
 registry.registerWorkbenchAction(new SyncActionDescriptor(OpenDebugViewletAction, OpenDebugViewletAction.ID, OpenDebugViewletAction.LABEL, openViewletKb), 'View: Show Debug', nls.localize('view', "View"));
 
 (<wbext.IWorkbenchContributionsRegistry>platform.Registry.as(wbext.Extensions.Workbench)).registerWorkbenchContribution(DebugEditorModelManager);
@@ -99,19 +113,65 @@ registry.registerWorkbenchAction(new SyncActionDescriptor(OpenDebugViewletAction
 
 const debugCategory = nls.localize('debugCategory', "Debug");
 registry.registerWorkbenchAction(new SyncActionDescriptor(
-	dbgactions.StartDebugAction, dbgactions.StartDebugAction.ID, dbgactions.StartDebugAction.LABEL, { primary: KeyCode.F5 }, KbExpr.not(debug.CONTEXT_IN_DEBUG_MODE)), 'Debug: Start Debugging', debugCategory);
-registry.registerWorkbenchAction(new SyncActionDescriptor(dbgactions.StepOverDebugAction, dbgactions.StepOverDebugAction.ID, dbgactions.StepOverDebugAction.LABEL, { primary: KeyCode.F10 }, KbExpr.has(debug.CONTEXT_IN_DEBUG_MODE)), 'Debug: Step Over', debugCategory);
-registry.registerWorkbenchAction(new SyncActionDescriptor(dbgactions.StepIntoDebugAction, dbgactions.StepIntoDebugAction.ID, dbgactions.StepIntoDebugAction.LABEL, { primary: KeyCode.F11 }, KbExpr.has(debug.CONTEXT_IN_DEBUG_MODE), KeybindingsRegistry.WEIGHT.workbenchContrib(1)), 'Debug: Step Into', debugCategory);
-registry.registerWorkbenchAction(new SyncActionDescriptor(dbgactions.StepOutDebugAction, dbgactions.StepOutDebugAction.ID, dbgactions.StepOutDebugAction.LABEL, { primary: KeyMod.Shift | KeyCode.F11 }, KbExpr.has(debug.CONTEXT_IN_DEBUG_MODE)), 'Debug: Step Out', debugCategory);
-registry.registerWorkbenchAction(new SyncActionDescriptor(dbgactions.RestartDebugAction, dbgactions.RestartDebugAction.ID, dbgactions.RestartDebugAction.LABEL, { primary: KeyMod.Shift | KeyMod.CtrlCmd | KeyCode.F5 }, KbExpr.has(debug.CONTEXT_IN_DEBUG_MODE)), 'Debug: Restart', debugCategory);
-registry.registerWorkbenchAction(new SyncActionDescriptor(dbgactions.StopDebugAction, dbgactions.StopDebugAction.ID, dbgactions.StopDebugAction.LABEL, { primary: KeyMod.Shift | KeyCode.F5 }, KbExpr.has(debug.CONTEXT_IN_DEBUG_MODE)), 'Debug: Stop', debugCategory);
-registry.registerWorkbenchAction(new SyncActionDescriptor(dbgactions.ContinueAction, dbgactions.ContinueAction.ID, dbgactions.ContinueAction.LABEL, { primary: KeyCode.F5 }, KbExpr.has(debug.CONTEXT_IN_DEBUG_MODE)), 'Debug: Continue', debugCategory);
-registry.registerWorkbenchAction(new SyncActionDescriptor(dbgactions.PauseAction, dbgactions.PauseAction.ID, dbgactions.PauseAction.LABEL), 'Debug: Pause', debugCategory);
-registry.registerWorkbenchAction(new SyncActionDescriptor(dbgactions.ConfigureAction, dbgactions.ConfigureAction.ID, dbgactions.ConfigureAction.LABEL), 'Debug: Open launch.json', debugCategory);
-registry.registerWorkbenchAction(new SyncActionDescriptor(dbgactions.ToggleReplAction, dbgactions.ToggleReplAction.ID, dbgactions.ToggleReplAction.LABEL, { primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_Y,}), 'Debug: Debug Console', debugCategory);
-registry.registerWorkbenchAction(new SyncActionDescriptor(dbgactions.AddFunctionBreakpointAction, dbgactions.AddFunctionBreakpointAction.ID, dbgactions.AddFunctionBreakpointAction.LABEL), 'Debug: Add Function Breakpoint', debugCategory);
-registry.registerWorkbenchAction(new SyncActionDescriptor(dbgactions.ReapplyBreakpointsAction, dbgactions.ReapplyBreakpointsAction.ID, dbgactions.ReapplyBreakpointsAction.LABEL), 'Debug: Reapply All Breakpoints', debugCategory);
-registry.registerWorkbenchAction(new SyncActionDescriptor(dbgactions.RunAction, dbgactions.RunAction.ID, dbgactions.RunAction.LABEL, { primary: KeyMod.CtrlCmd | KeyCode.F5 }, KbExpr.not(debug.CONTEXT_IN_DEBUG_MODE)), 'Debug: Start Without Debugging', debugCategory);
+	StartAction, StartAction.ID, StartAction.LABEL, { primary: KeyCode.F5 }, debug.CONTEXT_NOT_IN_DEBUG_MODE), 'Debug: Start Debugging', debugCategory);
+registry.registerWorkbenchAction(new SyncActionDescriptor(StepOverAction, StepOverAction.ID, StepOverAction.LABEL, { primary: KeyCode.F10 }, debug.CONTEXT_IN_DEBUG_MODE), 'Debug: Step Over', debugCategory);
+registry.registerWorkbenchAction(new SyncActionDescriptor(StepIntoAction, StepIntoAction.ID, StepIntoAction.LABEL, { primary: KeyCode.F11 }, debug.CONTEXT_IN_DEBUG_MODE, KeybindingsRegistry.WEIGHT.workbenchContrib(1)), 'Debug: Step Into', debugCategory);
+registry.registerWorkbenchAction(new SyncActionDescriptor(StepOutAction, StepOutAction.ID, StepOutAction.LABEL, { primary: KeyMod.Shift | KeyCode.F11 }, debug.CONTEXT_IN_DEBUG_MODE), 'Debug: Step Out', debugCategory);
+registry.registerWorkbenchAction(new SyncActionDescriptor(StepBackAction, StepBackAction.ID, StepBackAction.LABEL, { primary: KeyMod.Shift | KeyCode.F10 }, debug.CONTEXT_IN_DEBUG_MODE), 'Debug: Step Back', debugCategory);
+registry.registerWorkbenchAction(new SyncActionDescriptor(RestartAction, RestartAction.ID, RestartAction.LABEL, { primary: KeyMod.Shift | KeyMod.CtrlCmd | KeyCode.F5 }, debug.CONTEXT_IN_DEBUG_MODE), 'Debug: Restart', debugCategory);
+registry.registerWorkbenchAction(new SyncActionDescriptor(StopAction, StopAction.ID, StopAction.LABEL, { primary: KeyMod.Shift | KeyCode.F5 }, debug.CONTEXT_IN_DEBUG_MODE), 'Debug: Stop', debugCategory);
+registry.registerWorkbenchAction(new SyncActionDescriptor(DisconnectAction, DisconnectAction.ID, DisconnectAction.LABEL), 'Debug: Disconnect', debugCategory);
+registry.registerWorkbenchAction(new SyncActionDescriptor(ContinueAction, ContinueAction.ID, ContinueAction.LABEL, { primary: KeyCode.F5 }, debug.CONTEXT_IN_DEBUG_MODE), 'Debug: Continue', debugCategory);
+registry.registerWorkbenchAction(new SyncActionDescriptor(PauseAction, PauseAction.ID, PauseAction.LABEL), 'Debug: Pause', debugCategory);
+registry.registerWorkbenchAction(new SyncActionDescriptor(ConfigureAction, ConfigureAction.ID, ConfigureAction.LABEL), 'Debug: Open launch.json', debugCategory);
+registry.registerWorkbenchAction(new SyncActionDescriptor(AddFunctionBreakpointAction, AddFunctionBreakpointAction.ID, AddFunctionBreakpointAction.LABEL), 'Debug: Add Function Breakpoint', debugCategory);
+registry.registerWorkbenchAction(new SyncActionDescriptor(ReapplyBreakpointsAction, ReapplyBreakpointsAction.ID, ReapplyBreakpointsAction.LABEL), 'Debug: Reapply All Breakpoints', debugCategory);
+registry.registerWorkbenchAction(new SyncActionDescriptor(RunAction, RunAction.ID, RunAction.LABEL, { primary: KeyMod.CtrlCmd | KeyCode.F5 }, debug.CONTEXT_NOT_IN_DEBUG_MODE), 'Debug: Start Without Debugging', debugCategory);
+registry.registerWorkbenchAction(new SyncActionDescriptor(RemoveAllBreakpointsAction, RemoveAllBreakpointsAction.ID, RemoveAllBreakpointsAction.LABEL), 'Debug: Remove All Breakpoints', debugCategory);
+registry.registerWorkbenchAction(new SyncActionDescriptor(EnableAllBreakpointsAction, EnableAllBreakpointsAction.ID, EnableAllBreakpointsAction.LABEL), 'Debug: Enable All Breakpoints', debugCategory);
+registry.registerWorkbenchAction(new SyncActionDescriptor(DisableAllBreakpointsAction, DisableAllBreakpointsAction.ID, DisableAllBreakpointsAction.LABEL), 'Debug: Disable All Breakpoints', debugCategory);
+registry.registerWorkbenchAction(new SyncActionDescriptor(ClearReplAction, ClearReplAction.ID, ClearReplAction.LABEL), 'Debug: Clear Debug Console', debugCategory);
+registry.registerWorkbenchAction(new SyncActionDescriptor(FocusReplAction, FocusReplAction.ID, FocusReplAction.LABEL), 'Debug: Focus Debug Console', debugCategory);
+
+KeybindingsRegistry.registerCommandAndKeybindingRule({
+	id: '_workbench.startDebug',
+	weight: KeybindingsRegistry.WEIGHT.workbenchContrib(0),
+	handler(accessor: ServicesAccessor, configurationOrName: any) {
+		const debugService = accessor.get(debug.IDebugService);
+		return debugService.createProcess(configurationOrName);
+	},
+	when: debug.CONTEXT_NOT_IN_DEBUG_MODE,
+	primary: undefined
+});
 
 // register service
 registerSingleton(IDebugService, service.DebugService);
+
+// Register Debug Error Editor #9062
+(<IEditorRegistry>platform.Registry.as(EditorExtensions.Editors)).registerEditor(new EditorDescriptor(DebugErrorEditor.ID,
+	nls.localize({ comment: ['Debug is a noun in this context, not a verb.'], key: 'debugErrorEditor' }, "Debug Error"),
+	'vs/workbench/parts/debug/browser/debugErrorEditor',
+	'DebugErrorEditor'),
+	[new SyncDescriptor(DebugErrorEditorInput)]
+);
+
+// Register configuration
+const configurationRegistry = <confregistry.IConfigurationRegistry>platform.Registry.as(confregistry.Extensions.Configuration);
+configurationRegistry.registerConfiguration({
+	id: 'debug',
+	order: 20,
+	title: nls.localize('debugConfigurationTitle', "Debug"),
+	type: 'object',
+	properties: {
+		'debug.allowBreakpointsEverywhere': {
+			type: 'boolean',
+			description: nls.localize({ comment: ['This is the description for a setting'], key: 'allowBreakpointsEverywhere' }, "Allows setting breakpoint in any file"),
+			default: false
+		},
+		'debug.openExplorerOnEnd': {
+			type: 'boolean',
+			description: nls.localize({ comment: ['This is the description for a setting'], key: 'openExplorerOnEnd' }, "Automatically open explorer viewlet on the end of a debug session"),
+			default: false
+		}
+	}
+});

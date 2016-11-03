@@ -8,23 +8,27 @@
 import 'vs/css!./lineNumbers';
 import * as platform from 'vs/base/common/platform';
 import * as editorCommon from 'vs/editor/common/editorCommon';
-import {DynamicViewOverlay} from 'vs/editor/browser/view/dynamicViewOverlay';
-import {ClassNames, IRenderingContext, IViewContext} from 'vs/editor/browser/editorBrowser';
+import { DynamicViewOverlay } from 'vs/editor/browser/view/dynamicViewOverlay';
+import { ClassNames } from 'vs/editor/browser/editorBrowser';
+import { ViewContext } from 'vs/editor/common/view/viewContext';
+import { IRenderingContext } from 'vs/editor/common/view/renderingContext';
 
 export class LineNumbersOverlay extends DynamicViewOverlay {
 
-	private _context:IViewContext;
-	private _lineHeight:number;
-	private _lineNumbers:any;
-	private _lineNumbersLeft:number;
-	private _lineNumbersWidth:number;
-	private _renderResult:string[];
+	private _context: ViewContext;
+	private _lineHeight: number;
+	private _renderLineNumbers: boolean;
+	private _renderRelativeLineNumbers: boolean;
+	private _lineNumbersLeft: number;
+	private _lineNumbersWidth: number;
+	private _renderResult: string[];
 
-	constructor(context:IViewContext) {
+	constructor(context: ViewContext) {
 		super();
 		this._context = context;
 		this._lineHeight = this._context.configuration.editor.lineHeight;
-		this._lineNumbers = this._context.configuration.editor.lineNumbers;
+		this._renderLineNumbers = this._context.configuration.editor.viewInfo.renderLineNumbers;
+		this._renderRelativeLineNumbers = this._context.configuration.editor.viewInfo.renderRelativeLineNumbers;
 		this._lineNumbersLeft = 0;
 		this._lineNumbersWidth = 0;
 		this._renderResult = null;
@@ -42,67 +46,67 @@ export class LineNumbersOverlay extends DynamicViewOverlay {
 	public onModelFlushed(): boolean {
 		return true;
 	}
-	public onModelDecorationsChanged(e:editorCommon.IViewDecorationsChangedEvent): boolean {
+	public onModelDecorationsChanged(e: editorCommon.IViewDecorationsChangedEvent): boolean {
 		return false;
 	}
-	public onModelLinesDeleted(e:editorCommon.IViewLinesDeletedEvent): boolean {
+	public onModelLinesDeleted(e: editorCommon.IViewLinesDeletedEvent): boolean {
 		return true;
 	}
-	public onModelLineChanged(e:editorCommon.IViewLineChangedEvent): boolean {
+	public onModelLineChanged(e: editorCommon.IViewLineChangedEvent): boolean {
 		return true;
 	}
-	public onModelLinesInserted(e:editorCommon.IViewLinesInsertedEvent): boolean {
+	public onModelLinesInserted(e: editorCommon.IViewLinesInsertedEvent): boolean {
 		return true;
 	}
-	public onCursorPositionChanged(e:editorCommon.IViewCursorPositionChangedEvent): boolean {
+	public onCursorPositionChanged(e: editorCommon.IViewCursorPositionChangedEvent): boolean {
+		if (this._renderRelativeLineNumbers) {
+			return true;
+		}
 		return false;
 	}
-	public onCursorSelectionChanged(e:editorCommon.IViewCursorSelectionChangedEvent): boolean {
+	public onCursorSelectionChanged(e: editorCommon.IViewCursorSelectionChangedEvent): boolean {
 		return false;
 	}
-	public onCursorRevealRange(e:editorCommon.IViewRevealRangeEvent): boolean {
+	public onCursorRevealRange(e: editorCommon.IViewRevealRangeEvent): boolean {
 		return false;
 	}
-	public onConfigurationChanged(e:editorCommon.IConfigurationChangedEvent): boolean {
+	public onConfigurationChanged(e: editorCommon.IConfigurationChangedEvent): boolean {
 		if (e.lineHeight) {
 			this._lineHeight = this._context.configuration.editor.lineHeight;
 		}
-		if (e.lineNumbers) {
-			this._lineNumbers = this._context.configuration.editor.lineNumbers;
+		if (e.viewInfo.renderLineNumbers) {
+			this._renderLineNumbers = this._context.configuration.editor.viewInfo.renderLineNumbers;
+		}
+		if (e.viewInfo.renderRelativeLineNumbers) {
+			this._renderRelativeLineNumbers = this._context.configuration.editor.viewInfo.renderRelativeLineNumbers;
 		}
 		return true;
 	}
-	public onLayoutChanged(layoutInfo:editorCommon.IEditorLayoutInfo): boolean {
+	public onLayoutChanged(layoutInfo: editorCommon.EditorLayoutInfo): boolean {
 		this._lineNumbersLeft = layoutInfo.lineNumbersLeft;
 		this._lineNumbersWidth = layoutInfo.lineNumbersWidth;
 		return true;
 	}
-	public onScrollChanged(e:editorCommon.IScrollEvent): boolean {
-		return e.vertical;
+	public onScrollChanged(e: editorCommon.IScrollEvent): boolean {
+		return e.scrollTopChanged;
 	}
 	public onZonesChanged(): boolean {
 		return true;
 	}
-	public onScrollWidthChanged(scrollWidth:number): boolean {
-		return false;
-	}
-	public onScrollHeightChanged(scrollHeight:number): boolean {
-		return false;
-	}
 
 	// --- end event handlers
 
-	public prepareRender(ctx:IRenderingContext): void {
+	public prepareRender(ctx: IRenderingContext): void {
 		if (!this.shouldRender()) {
 			throw new Error('I did not ask to render!');
 		}
 
-		if (!this._lineNumbers) {
+		if (!this._renderLineNumbers) {
 			this._renderResult = null;
 			return;
 		}
 
-		let lineHeightClassName = (platform.isLinux ? (this._lineHeight % 2 === 0 ? ' lh-even': ' lh-odd') : '');
+		let lineHeightClassName = (platform.isLinux ? (this._lineHeight % 2 === 0 ? ' lh-even' : ' lh-odd') : '');
 		let lineHeight = this._lineHeight.toString();
 		let visibleStartLineNumber = ctx.visibleRange.startLineNumber;
 		let visibleEndLineNumber = ctx.visibleRange.endLineNumber;
@@ -127,7 +131,7 @@ export class LineNumbersOverlay extends DynamicViewOverlay {
 		this._renderResult = output;
 	}
 
-	public render(startLineNumber:number, lineNumber:number): string {
+	public render(startLineNumber: number, lineNumber: number): string {
 		if (!this._renderResult) {
 			return '';
 		}

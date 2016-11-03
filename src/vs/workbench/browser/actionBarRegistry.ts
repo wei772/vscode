@@ -4,15 +4,15 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {TPromise} from 'vs/base/common/winjs.base';
-import {Registry} from 'vs/platform/platform';
+import { TPromise } from 'vs/base/common/winjs.base';
+import { Registry } from 'vs/platform/platform';
 import types = require('vs/base/common/types');
 import collections = require('vs/base/common/collections');
-import {Action, IAction} from 'vs/base/common/actions';
-import {BaseActionItem, Separator} from 'vs/base/browser/ui/actionbar/actionbar';
-import {IActionProvider} from 'vs/base/parts/tree/browser/actionsRenderer';
-import {ITree} from 'vs/base/parts/tree/browser/tree';
-import {IInstantiationService, IConstructorSignature0} from 'vs/platform/instantiation/common/instantiation';
+import { Action, IAction } from 'vs/base/common/actions';
+import { BaseActionItem, Separator } from 'vs/base/browser/ui/actionbar/actionbar';
+import { IActionProvider } from 'vs/base/parts/tree/browser/actionsRenderer';
+import { ITree } from 'vs/base/parts/tree/browser/tree';
+import { IInstantiationService, IConstructorSignature0 } from 'vs/platform/instantiation/common/instantiation';
 
 /**
  * The action bar contributor allows to add actions to an actionbar in a given context.
@@ -93,7 +93,7 @@ export class ContributableActionProvider implements IActionProvider {
 	private registry: IActionBarRegistry;
 
 	constructor() {
-		this.registry = (<IActionBarRegistry> Registry.as(Extensions.Actionbar));
+		this.registry = (<IActionBarRegistry>Registry.as(Extensions.Actionbar));
 	}
 
 	private toContext(tree: ITree, element: any): any {
@@ -182,10 +182,13 @@ export class ContributableActionProvider implements IActionProvider {
 
 // Helper function used in parts to massage actions before showing in action areas
 export function prepareActions(actions: IAction[]): IAction[] {
+	if (!actions.length) {
+		return actions;
+	}
 
 	// Patch order if not provided
 	for (let l = 0; l < actions.length; l++) {
-		let a = <any> actions[l];
+		let a = <any>actions[l];
 		if (types.isUndefinedOrNull(a.order)) {
 			a.order = l;
 		}
@@ -195,8 +198,13 @@ export function prepareActions(actions: IAction[]): IAction[] {
 	actions = actions.sort((first: Action, second: Action) => {
 		let firstOrder = first.order;
 		let secondOrder = second.order;
-
-		return firstOrder < secondOrder ? -1 : 1;
+		if (firstOrder < secondOrder) {
+			return -1;
+		} else if (firstOrder > secondOrder) {
+			return 1;
+		} else {
+			return 0;
+		}
 	});
 
 	// Clean up leading separators
@@ -268,7 +276,7 @@ export interface IActionBarRegistry {
 
 	/**
 	 * Registers an Actionbar contributor. It will be called to contribute actions to all the action bars
-	 * that are used in the Monaco Workbench in the given scope.
+	 * that are used in the Workbench in the given scope.
 	 */
 	registerActionBarContributor(scope: string, ctor: IConstructorSignature0<ActionBarContributor>): void;
 
@@ -296,7 +304,7 @@ class ActionBarRegistry implements IActionBarRegistry {
 
 	private createActionBarContributor(scope: string, ctor: IConstructorSignature0<ActionBarContributor>): void {
 		let instance = this.instantiationService.createInstance(ctor);
-		let target = <ActionBarContributor[]> collections.lookupOrInsert(this.actionBarContributorInstances, scope, []);
+		let target = <ActionBarContributor[]>collections.lookupOrInsert(this.actionBarContributorInstances, scope, []);
 		target.push(instance);
 	}
 

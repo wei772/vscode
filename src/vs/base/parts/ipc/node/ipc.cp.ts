@@ -5,16 +5,18 @@
 
 import { ChildProcess, fork } from 'child_process';
 import { IDisposable } from 'vs/base/common/lifecycle';
-import { Promise} from 'vs/base/common/winjs.base';
+import { Promise } from 'vs/base/common/winjs.base';
 import { Delayer } from 'vs/base/common/async';
 import { clone, assign } from 'vs/base/common/objects';
-import { Server as IPCServer, Client as IPCClient, IClient, IChannel } from 'vs/base/parts/ipc/common/ipc';
+import { Emitter } from 'vs/base/common/event';
+import { fromEventEmitter } from 'vs/base/node/event';
+import { ChannelServer as IPCServer, ChannelClient as IPCClient, IChannelClient, IChannel } from 'vs/base/parts/ipc/common/ipc';
 
 export class Server extends IPCServer {
 	constructor() {
 		super({
 			send: r => { try { process.send(r); } catch (e) { /* not much to do */ } },
-			onMessage: cb => process.on('message', cb)
+			onMessage: fromEventEmitter(process, 'message', msg => msg)
 		});
 
 		process.once('disconnect', () => this.dispose());
@@ -31,30 +33,30 @@ export interface IIPCOptions {
 	/**
 	 * Time in millies before killing the ipc process. The next request after killing will start it again.
 	 */
-	timeout?:number;
+	timeout?: number;
 
 	/**
 	 * Arguments to the module to execute.
 	 */
-	args?:string[];
+	args?: string[];
 
 	/**
 	 * Environment key-value pairs to be passed to the process that gets spawned for the ipc.
 	 */
-	env?:any;
+	env?: any;
 
 	/**
 	 * Allows to assign a debug port for debugging the application executed.
 	 */
-	debug?:number;
+	debug?: number;
 
 	/**
 	 * Allows to assign a debug port for debugging the application and breaking it on the first line.
 	 */
-	debugBrk?:number;
+	debugBrk?: number;
 }
 
-export class Client implements IClient, IDisposable {
+export class Client implements IChannelClient, IDisposable {
 
 	private disposeDelayer: Delayer<void>;
 	private activeRequests: Promise[];
@@ -90,7 +92,10 @@ export class Client implements IClient, IDisposable {
 				}
 
 				this.activeRequests.splice(this.activeRequests.indexOf(result), 1);
-				this.disposeDelayer.trigger(() => this.disposeClient());
+
+				if (this.activeRequests.length === 0) {
+					this.disposeDelayer.trigger(() => this.disposeClient());
+				}
 			});
 		}, () => request.cancel());
 
@@ -101,50 +106,53 @@ export class Client implements IClient, IDisposable {
 	private get client(): IPCClient {
 		if (!this._client) {
 			const args = this.options && this.options.args ? this.options.args : [];
-			let forkOpts:any = undefined;
+			const forkOpts = Object.create(null);
 
-			if (this.options) {
-				forkOpts = Object.create(null);
+			forkOpts.env = assign(clone(process.env), { 'VSCODE_PARENT_PID': String(process.pid) });
 
-				if (this.options.env) {
-					forkOpts.env = assign(clone(process.env), this.options.env);
-				}
+			if (this.options && this.options.env) {
+				forkOpts.env = assign(forkOpts.env, this.options.env);
+			}
 
-				if (typeof this.options.debug === 'number') {
-					forkOpts.execArgv = ['--nolazy', '--debug=' + this.options.debug];
-				}
+			if (this.options && typeof this.options.debug === 'number') {
+				forkOpts.execArgv = ['--nolazy', '--debug=' + this.options.debug];
+			}
 
-				if (typeof this.options.debugBrk === 'number') {
-					forkOpts.execArgv = ['--nolazy', '--debug-brk=' + this.options.debugBrk];
-				}
+			if (this.options && typeof this.options.debugBrk === 'number') {
+				forkOpts.execArgv = ['--nolazy', '--debug-brk=' + this.options.debugBrk];
 			}
 
 			this.child = fork(this.modulePath, args, forkOpts);
-			this._client = new IPCClient({
-				send: r => this.child && this.child.connected && this.child.send(r),
-				onMessage: cb => {
-					this.child.on('message', (msg) => {
 
-						// Handle console logs specially
-						if (msg && msg.type === '__$console') {
-							let args = ['%c[IPC Library: ' + this.options.serverName + ']', 'color: darkgreen'];
-							try {
-								const parsed = JSON.parse(msg.arguments);
-								args = args.concat(Object.getOwnPropertyNames(parsed).map(o => parsed[o]));
-							} catch (error) {
-								args.push(msg.arguments);
-							}
+			const onMessageEmitter = new Emitter<any>();
+			const onRawMessage = fromEventEmitter(this.child, 'message', msg => msg);
 
-							console[msg.severity].apply(console, args);
-						}
+			onRawMessage(msg => {
+				// Handle console logs specially
+				if (msg && msg.type === '__$console') {
+					let args = ['%c[IPC Library: ' + this.options.serverName + ']', 'color: darkgreen'];
+					try {
+						const parsed = JSON.parse(msg.arguments);
+						args = args.concat(Object.getOwnPropertyNames(parsed).map(o => parsed[o]));
+					} catch (error) {
+						args.push(msg.arguments);
+					}
 
-						// Anything else goes to the outside
-						else {
-							cb(msg);
-						}
-					});
+					console[msg.severity].apply(console, args);
+					return null;
+				}
+
+				// Anything else goes to the outside
+				else {
+					onMessageEmitter.fire(msg);
 				}
 			});
+
+			const send = r => this.child && this.child.connected && this.child.send(r);
+			const onMessage = onMessageEmitter.event;
+			const protocol = { send, onMessage };
+
+			this._client = new IPCClient(protocol);
 
 			const onExit = () => this.disposeClient();
 			process.once('exit', onExit);

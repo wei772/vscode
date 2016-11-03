@@ -14,7 +14,7 @@ export default class TypeScriptReferenceSupport implements ReferenceProvider {
 
 	private client: ITypescriptServiceClient;
 
-	public tokens:string[] = [];
+	public tokens: string[] = [];
 
 	public constructor(client: ITypescriptServiceClient) {
 		this.client = client;
@@ -29,11 +29,15 @@ export default class TypeScriptReferenceSupport implements ReferenceProvider {
 		if (!args.file) {
 			return Promise.resolve<Location[]>([]);
 		}
+		const apiVersion = this.client.apiVersion;
 		return this.client.execute('references', args, token).then((msg) => {
 			let result: Location[] = [];
 			let refs = msg.body.refs;
 			for (let i = 0; i < refs.length; i++) {
 				let ref = refs[i];
+				if (!options.includeDeclaration && apiVersion.has203Features() && ref.isDefinition) {
+					continue;
+				}
 				let url = this.client.asUrl(ref.file);
 				let location = new Location(
 					url,
@@ -42,7 +46,8 @@ export default class TypeScriptReferenceSupport implements ReferenceProvider {
 				result.push(location);
 			}
 			return result;
-		}, () => {
+		}, (err) => {
+			this.client.error(`'references' request failed with error.`, err);
 			return [];
 		});
 	}

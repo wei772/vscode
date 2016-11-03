@@ -3,86 +3,84 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-'use strict';
-
-import nls = require('vs/nls');
-import { TPromise } from 'vs/base/common/winjs.base';
+import { IViewlet } from 'vs/workbench/common/viewlet';
+import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
 import Event from 'vs/base/common/event';
-import { createDecorator, ServiceIdentifier } from 'vs/platform/instantiation/common/instantiation';
+import { TPromise } from 'vs/base/common/winjs.base';
+import { IPager } from 'vs/base/common/paging';
+import { IQueryOptions, IExtensionManifest, LocalExtensionType } from 'vs/platform/extensionManagement/common/extensionManagement';
 
-export interface IExtensionManifest {
+export const VIEWLET_ID = 'workbench.view.extensions';
+
+export interface IExtensionsViewlet extends IViewlet {
+	search(text: string): void;
+}
+
+export enum ExtensionState {
+	Installing,
+	Installed,
+	Uninstalling,
+	Uninstalled
+}
+
+export interface IExtension {
+	type: LocalExtensionType;
+	state: ExtensionState;
 	name: string;
+	displayName: string;
+	identifier: string;
 	publisher: string;
-	version: string;
-	engines: { vscode: string };
-	displayName?: string;
-	description?: string;
-	main?: string;
-}
-
-export interface IGalleryVersion {
-	version: string;
-	date: string;
-	manifestUrl: string;
-	downloadUrl: string;
-	downloadHeaders: { [key: string]: string; };
-}
-
-export interface IGalleryMetadata {
-	galleryApiUrl: string;
-	id: string;
-	publisherId: string;
 	publisherDisplayName: string;
+	version: string;
+	latestVersion: string;
+	description: string;
+	iconUrl: string;
+	iconUrlFallback: string;
+	licenseUrl: string;
 	installCount: number;
-	versions: IGalleryVersion[];
+	rating: number;
+	ratingCount: number;
+	outdated: boolean;
+	disabledGlobally: boolean;
+	disabledForWorkspace: boolean;
+	dependencies: string[];
+	telemetryData: any;
+	getManifest(): TPromise<IExtensionManifest>;
+	getReadme(): TPromise<string>;
+	hasChangelog: boolean;
+	getChangelog(): TPromise<string>;
 }
 
-export interface IExtension extends IExtensionManifest {
-	galleryInformation?: IGalleryMetadata;
-	path?: string;
+export interface IExtensionDependencies {
+	dependencies: IExtensionDependencies[];
+	hasDependencies: boolean;
+	identifier: string;
+	extension: IExtension;
+	dependent: IExtensionDependencies;
 }
 
-export const IExtensionsService = createDecorator<IExtensionsService>('extensionsService');
-export const IGalleryService = createDecorator<IGalleryService>('galleryService');
+export const SERVICE_ID = 'extensionsWorkbenchService';
 
-export interface IQueryOptions {
-	text?: string;
-	ids?: string[];
-	pageSize?: number;
-}
+export const IExtensionsWorkbenchService = createDecorator<IExtensionsWorkbenchService>(SERVICE_ID);
 
-export interface IQueryResult {
-	firstPage: IExtension[];
-	total: number;
-	pageSize: number;
-	getPage(pageNumber: number): TPromise<IExtension[]>;
-}
-
-export interface IGalleryService {
-	serviceId: ServiceIdentifier<any>;
-	isEnabled(): boolean;
-	query(options?: IQueryOptions): TPromise<IQueryResult>;
-}
-
-export interface IExtensionsService {
-	serviceId: ServiceIdentifier<any>;
-	onInstallExtension: Event<IExtensionManifest>;
-	onDidInstallExtension: Event<{ extension: IExtension; error?: Error; }>;
-	onUninstallExtension: Event<IExtension>;
-	onDidUninstallExtension: Event<IExtension>;
-
-	install(extension: IExtension): TPromise<IExtension>;
-	install(zipPath: string): TPromise<IExtension>;
+export interface IExtensionsWorkbenchService {
+	_serviceBrand: any;
+	onChange: Event<void>;
+	local: IExtension[];
+	queryLocal(): TPromise<IExtension[]>;
+	queryGallery(options?: IQueryOptions): TPromise<IPager<IExtension>>;
+	canInstall(extension: IExtension): boolean;
+	install(vsix: string): TPromise<void>;
+	install(extension: IExtension, promptToInstallDependencies?: boolean): TPromise<void>;
 	uninstall(extension: IExtension): TPromise<void>;
-	getInstalled(includeDuplicateVersions?: boolean): TPromise<IExtension[]>;
+	setEnablement(extension: IExtension, enable: boolean, workspace?: boolean): TPromise<void>;
+	loadDependencies(extension: IExtension): TPromise<IExtensionDependencies>;
+	open(extension: IExtension, sideByside?: boolean): TPromise<any>;
 }
 
-export const IExtensionTipsService = createDecorator<IExtensionTipsService>('extensionTipsService');
+export const ConfigurationKey = 'extensions';
 
-export interface IExtensionTipsService {
-	serviceId: ServiceIdentifier<IExtensionTipsService>;
-	getRecommendations(): TPromise<IExtension[]>;
+export interface IExtensionsConfiguration {
+	autoUpdate: boolean;
+	recommendations: string[];
 }
-
-export const ExtensionsLabel = nls.localize('extensions', "Extensions");
-export const ExtensionsChannelId = 'extensions';

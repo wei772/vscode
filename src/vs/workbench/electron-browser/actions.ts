@@ -5,22 +5,37 @@
 
 'use strict';
 
-import {TPromise} from 'vs/base/common/winjs.base';
+import URI from 'vs/base/common/uri';
+import { TPromise } from 'vs/base/common/winjs.base';
 import timer = require('vs/base/common/timer');
-import paths = require('vs/base/common/paths');
-import {Action} from 'vs/base/common/actions';
-import {IWindowService} from 'vs/workbench/services/window/electron-browser/windowService';
-import {IWorkbenchEditorService} from 'vs/workbench/services/editor/common/editorService';
+import { Action } from 'vs/base/common/actions';
+import { IWindowIPCService } from 'vs/workbench/services/window/electron-browser/windowService';
+import { IWindowService } from 'vs/platform/windows/common/windows';
+import { IWorkbenchEditorService } from 'vs/workbench/services/editor/common/editorService';
+import { EditorInput } from 'vs/workbench/common/editor';
+import { DiffEditorInput } from 'vs/workbench/common/editor/diffEditorInput';
 import nls = require('vs/nls');
-import {IMessageService, Severity} from 'vs/platform/message/common/message';
-import {IWindowConfiguration} from 'vs/workbench/electron-browser/window';
-import {IWorkspaceContextService} from 'vs/platform/workspace/common/workspace';
-import {IQuickOpenService} from 'vs/workbench/services/quickopen/common/quickOpenService';
-import {IConfigurationService} from 'vs/platform/configuration/common/configuration';
-import {KeybindingsRegistry} from 'vs/platform/keybinding/common/keybindingsRegistry';
-import {ServicesAccessor} from 'vs/platform/instantiation/common/instantiation';
+import product from 'vs/platform/product';
+import pkg from 'vs/platform/package';
+import errors = require('vs/base/common/errors');
+import { IMessageService, Severity } from 'vs/platform/message/common/message';
+import { IWorkspaceContextService } from 'vs/platform/workspace/common/workspace';
+import { IPartService } from 'vs/workbench/services/part/common/partService';
+import { IEnvironmentService } from 'vs/platform/environment/common/environment';
+import { IConfigurationEditingService, ConfigurationTarget } from 'vs/workbench/services/configuration/common/configurationEditing';
+import { IExtensionManagementService, LocalExtensionType, ILocalExtension } from 'vs/platform/extensionManagement/common/extensionManagement';
+import { IWorkspaceConfigurationService } from 'vs/workbench/services/configuration/common/configuration';
+import { CommandsRegistry } from 'vs/platform/commands/common/commands';
+import paths = require('vs/base/common/paths');
+import { isMacintosh } from 'vs/base/common/platform';
+import { IQuickOpenService, IPickOpenEntry, IFilePickOpenEntry, ISeparator } from 'vs/workbench/services/quickopen/common/quickOpenService';
+import { KeyMod } from 'vs/base/common/keyCodes';
+import { ServicesAccessor } from 'vs/platform/instantiation/common/instantiation';
+import * as browser from 'vs/base/browser/browser';
+import { IIntegrityService } from 'vs/platform/integrity/common/integrity';
 
-import {ipcRenderer as ipc, webFrame, remote} from 'electron';
+import * as os from 'os';
+import { ipcRenderer as ipc, webFrame, remote } from 'electron';
 
 // --- actions
 
@@ -32,19 +47,16 @@ export class CloseEditorAction extends Action {
 	constructor(
 		id: string,
 		label: string,
-		@IWorkbenchEditorService private editorService: IWorkbenchEditorService,
-		@IWindowService private windowService: IWindowService
+		@IWorkbenchEditorService private editorService: IWorkbenchEditorService
 	) {
 		super(id, label);
 	}
 
 	public run(): TPromise<any> {
-		let activeEditor = this.editorService.getActiveEditor();
+		const activeEditor = this.editorService.getActiveEditor();
 		if (activeEditor) {
-			return this.editorService.closeEditor(activeEditor);
+			return this.editorService.closeEditor(activeEditor.position, activeEditor.input);
 		}
-
-		this.windowService.getWindow().close();
 
 		return TPromise.as(false);
 	}
@@ -55,12 +67,46 @@ export class CloseWindowAction extends Action {
 	public static ID = 'workbench.action.closeWindow';
 	public static LABEL = nls.localize('closeWindow', "Close Window");
 
-	constructor(id: string, label: string, @IWindowService private windowService: IWindowService) {
+	constructor(id: string, label: string, @IWindowIPCService private windowService: IWindowIPCService) {
 		super(id, label);
 	}
 
 	public run(): TPromise<boolean> {
 		this.windowService.getWindow().close();
+
+		return TPromise.as(true);
+	}
+}
+
+export class SwitchWindow extends Action {
+
+	public static ID = 'workbench.action.switchWindow';
+	public static LABEL = nls.localize('switchWindow', "Switch Window");
+
+	constructor(
+		id: string,
+		label: string,
+		@IWindowIPCService private windowService: IWindowIPCService,
+		@IQuickOpenService private quickOpenService: IQuickOpenService
+	) {
+		super(id, label);
+	}
+
+	public run(): TPromise<boolean> {
+		const id = this.windowService.getWindowId();
+		ipc.send('vscode:switchWindow', id);
+		ipc.once('vscode:switchWindow', (event, workspaces) => {
+			const picks: IPickOpenEntry[] = workspaces.map(w => {
+				return {
+					label: w.title,
+					description: (id === w.id) ? nls.localize('current', "Current Window") : void 0,
+					run: () => {
+						ipc.send('vscode:showWindow', w.id);
+					}
+				};
+			});
+			this.quickOpenService.pick(picks, { placeHolder: nls.localize('switchWindowPlaceHolder', "Select a window") });
+		});
 
 		return TPromise.as(true);
 	}
@@ -76,7 +122,7 @@ export class CloseFolderAction extends Action {
 		label: string,
 		@IWorkspaceContextService private contextService: IWorkspaceContextService,
 		@IMessageService private messageService: IMessageService,
-		@IWindowService private windowService: IWindowService
+		@IWindowIPCService private windowService: IWindowIPCService
 	) {
 		super(id, label);
 	}
@@ -100,7 +146,7 @@ export class NewWindowAction extends Action {
 	constructor(
 		id: string,
 		label: string,
-		@IWindowService private windowService: IWindowService
+		@IWindowIPCService private windowService: IWindowIPCService
 	) {
 		super(id, label);
 	}
@@ -117,7 +163,7 @@ export class ToggleFullScreenAction extends Action {
 	public static ID = 'workbench.action.toggleFullScreen';
 	public static LABEL = nls.localize('toggleFullScreen', "Toggle Full Screen");
 
-	constructor(id: string, label: string, @IWindowService private windowService: IWindowService) {
+	constructor(id: string, label: string, @IWindowIPCService private windowService: IWindowIPCService) {
 		super(id, label);
 	}
 
@@ -133,7 +179,7 @@ export class ToggleMenuBarAction extends Action {
 	public static ID = 'workbench.action.toggleMenuBar';
 	public static LABEL = nls.localize('toggleMenuBar', "Toggle Menu Bar");
 
-	constructor(id: string, label: string, @IWindowService private windowService: IWindowService) {
+	constructor(id: string, label: string, @IWindowIPCService private windowService: IWindowIPCService) {
 		super(id, label);
 	}
 
@@ -149,7 +195,7 @@ export class ToggleDevToolsAction extends Action {
 	public static ID = 'workbench.action.toggleDevTools';
 	public static LABEL = nls.localize('toggleDevTools', "Toggle Developer Tools");
 
-	constructor(id: string, label: string, @IWindowService private windowService: IWindowService) {
+	constructor(id: string, label: string, @IWindowIPCService private windowService: IWindowIPCService) {
 		super(id, label);
 	}
 
@@ -160,68 +206,73 @@ export class ToggleDevToolsAction extends Action {
 	}
 }
 
-export class ZoomInAction extends Action {
-
-	public static ID = 'workbench.action.zoomIn';
-	public static LABEL = nls.localize('zoomIn', "Zoom in");
-
-	constructor(id: string, label: string) {
-		super(id, label);
-	}
-
-	public run(): TPromise<boolean> {
-		webFrame.setZoomLevel(webFrame.getZoomLevel() + 1);
-
-		return TPromise.as(true);
-	}
-}
-
 export abstract class BaseZoomAction extends Action {
+	private static SETTING_KEY = 'window.zoomLevel';
 
 	constructor(
 		id: string,
 		label: string,
-		@IConfigurationService private configurationService: IConfigurationService
+		@IMessageService private messageService: IMessageService,
+		@IWorkspaceConfigurationService private configurationService: IWorkspaceConfigurationService,
+		@IConfigurationEditingService private configurationEditingService: IConfigurationEditingService
 	) {
 		super(id, label);
 	}
 
-	public run(): TPromise<boolean> {
-		return TPromise.as(false); // Subclass to implement
-	}
-
-	protected getConfiguredZoomLevel(): number {
-		const windowConfig = this.configurationService.getConfiguration<IWindowConfiguration>();
-		if (windowConfig.window && typeof windowConfig.window.zoomLevel === 'number') {
-			return windowConfig.window.zoomLevel;
+	protected setConfiguredZoomLevel(level: number): void {
+		let target = ConfigurationTarget.USER;
+		if (typeof this.configurationService.lookup(BaseZoomAction.SETTING_KEY).workspace === 'number') {
+			target = ConfigurationTarget.WORKSPACE;
 		}
 
-		return 0; // default
+		const applyZoom = () => {
+			webFrame.setZoomLevel(level);
+			browser.setZoomLevel(level); // Ensure others can listen to zoom level changes
+		};
+
+		this.configurationEditingService.writeConfiguration(target, { key: BaseZoomAction.SETTING_KEY, value: level }).done(() => applyZoom(), error => applyZoom());
+	}
+}
+
+export class ZoomInAction extends BaseZoomAction {
+
+	public static ID = 'workbench.action.zoomIn';
+	public static LABEL = nls.localize('zoomIn', "Zoom In");
+
+	constructor(
+		id: string,
+		label: string,
+		@IMessageService messageService: IMessageService,
+		@IWorkspaceConfigurationService configurationService: IWorkspaceConfigurationService,
+		@IConfigurationEditingService configurationEditingService: IConfigurationEditingService
+	) {
+		super(id, label, messageService, configurationService, configurationEditingService);
+	}
+
+	public run(): TPromise<boolean> {
+		this.setConfiguredZoomLevel(webFrame.getZoomLevel() + 1);
+
+		return TPromise.as(true);
 	}
 }
 
 export class ZoomOutAction extends BaseZoomAction {
 
 	public static ID = 'workbench.action.zoomOut';
-	public static LABEL = nls.localize('zoomOut', "Zoom out");
+	public static LABEL = nls.localize('zoomOut', "Zoom Out");
 
 	constructor(
 		id: string,
 		label: string,
-		@IConfigurationService configurationService: IConfigurationService
+		@IMessageService messageService: IMessageService,
+		@IWorkspaceConfigurationService configurationService: IWorkspaceConfigurationService,
+		@IConfigurationEditingService configurationEditingService: IConfigurationEditingService
 	) {
-		super(id, label, configurationService);
+		super(id, label, messageService, configurationService, configurationEditingService);
 	}
 
 	public run(): TPromise<boolean> {
-		const level = this.getConfiguredZoomLevel();
-
-		let newZoomLevelCandiate = webFrame.getZoomLevel() - 1;
-		if (newZoomLevelCandiate < 0 && newZoomLevelCandiate < level) {
-			newZoomLevelCandiate = Math.min(level, 0); // do not zoom below configured level or below 0
-		}
-
-		webFrame.setZoomLevel(newZoomLevelCandiate);
+		this.setConfiguredZoomLevel(webFrame.getZoomLevel() - 1);
 
 		return TPromise.as(true);
 	}
@@ -235,14 +286,15 @@ export class ZoomResetAction extends BaseZoomAction {
 	constructor(
 		id: string,
 		label: string,
-		@IConfigurationService configurationService: IConfigurationService
+		@IMessageService messageService: IMessageService,
+		@IWorkspaceConfigurationService configurationService: IWorkspaceConfigurationService,
+		@IConfigurationEditingService configurationEditingService: IConfigurationEditingService
 	) {
-		super(id, label, configurationService);
+		super(id, label, messageService, configurationService, configurationEditingService);
 	}
 
 	public run(): TPromise<boolean> {
-		const level = this.getConfiguredZoomLevel();
-		webFrame.setZoomLevel(level);
+		this.setConfiguredZoomLevel(0);
 
 		return TPromise.as(true);
 	}
@@ -278,24 +330,24 @@ export class ShowStartupPerformance extends Action {
 	constructor(
 		id: string,
 		label: string,
-		@IWindowService private windowService: IWindowService,
-		@IWorkspaceContextService private contextService: IWorkspaceContextService
+		@IWindowIPCService private windowService: IWindowIPCService,
+		@IEnvironmentService environmentService: IEnvironmentService
 	) {
 		super(id, label);
 
-		this.enabled = contextService.getConfiguration().env.enablePerformance;
+		this.enabled = environmentService.performance;
 	}
 
 	private _analyzeLoaderTimes(): any[] {
-		let stats = <ILoaderEvent[]>(<any>require).getStats();
-		let result = [];
+		const stats = <ILoaderEvent[]>(<any>require).getStats();
+		const result = [];
 
 		let total = 0;
 
 		for (let i = 0, len = stats.length; i < len; i++) {
 			if (stats[i].type === LoaderEventType.NodeEndNativeRequire) {
 				if (stats[i - 1].type === LoaderEventType.NodeBeginNativeRequire && stats[i - 1].detail === stats[i].detail) {
-					let entry: any = {};
+					const entry: any = {};
 					entry['Event'] = 'nodeRequire ' + stats[i].detail;
 					entry['Took (ms)'] = (stats[i].timestamp - stats[i - 1].timestamp);
 					total += (stats[i].timestamp - stats[i - 1].timestamp);
@@ -307,7 +359,7 @@ export class ShowStartupPerformance extends Action {
 		}
 
 		if (total > 0) {
-			let entry: any = {};
+			const entry: any = {};
 			entry['Event'] = '===nodeRequire TOTAL';
 			entry['Took (ms)'] = total;
 			entry['Start (ms)'] = '**';
@@ -319,18 +371,18 @@ export class ShowStartupPerformance extends Action {
 	}
 
 	public run(): TPromise<boolean> {
-		let table: any[] = [];
+		const table: any[] = [];
 		table.push(...this._analyzeLoaderTimes());
 
-		let start = Math.round(remote.getGlobal('programStart') || remote.getGlobal('vscodeStart'));
-		let windowShowTime = Math.round(remote.getGlobal('windowShow'));
+		const start = Math.round(remote.getGlobal('vscodeStart'));
+		const windowShowTime = Math.round(remote.getGlobal('windowShow'));
 
 		let lastEvent: timer.ITimerEvent;
-		let events = timer.getTimeKeeper().getCollectedEvents();
+		const events = timer.getTimeKeeper().getCollectedEvents();
 		events.forEach((e) => {
 			if (e.topic === 'Startup') {
 				lastEvent = e;
-				let entry: any = {};
+				const entry: any = {};
 
 				entry['Event'] = e.name;
 				entry['Took (ms)'] = e.stopTime.getTime() - e.startTime.getTime();
@@ -343,12 +395,12 @@ export class ShowStartupPerformance extends Action {
 
 		table.push({ Event: '---------------------------' });
 
-		let windowShowEvent: any = {};
+		const windowShowEvent: any = {};
 		windowShowEvent['Event'] = 'Show Window at';
 		windowShowEvent['Start (ms)'] = windowShowTime - start;
 		table.push(windowShowEvent);
 
-		let sum: any = {};
+		const sum: any = {};
 		sum['Event'] = 'Total';
 		sum['Took (ms)'] = lastEvent.stopTime.getTime() - start;
 		table.push(sum);
@@ -369,17 +421,21 @@ export class ShowStartupPerformance extends Action {
 
 export class ReloadWindowAction extends Action {
 
-	public static ID = 'workbench.action.reloadWindow';
-	public static LABEL = nls.localize('reloadWindow', "Reload Window");
+	static ID = 'workbench.action.reloadWindow';
+	static LABEL = nls.localize('reloadWindow', "Reload Window");
 
-	constructor(id: string, label: string, @IWindowService private windowService: IWindowService) {
+	constructor(
+		id: string,
+		label: string,
+		@IWindowService private windowService: IWindowService,
+		@IPartService private partService: IPartService
+	) {
 		super(id, label);
 	}
 
-	public run(): TPromise<boolean> {
-		this.windowService.getWindow().reload();
-
-		return TPromise.as(true);
+	run(): TPromise<boolean> {
+		this.partService.setRestoreSidebar(); // we want the same sidebar after a reload restored
+		return this.windowService.reloadWindow().then(() => true);
 	}
 }
 
@@ -391,47 +447,53 @@ export class OpenRecentAction extends Action {
 	constructor(
 		id: string,
 		label: string,
-		@IWorkspaceContextService private contextService: IWorkspaceContextService,
-		@IQuickOpenService private quickOpenService: IQuickOpenService
+		@IWindowIPCService private windowService: IWindowIPCService,
+		@IQuickOpenService private quickOpenService: IQuickOpenService,
+		@IWorkspaceContextService private contextService: IWorkspaceContextService
 	) {
 		super(id, label);
 	}
 
 	public run(): TPromise<boolean> {
-		const recentFolders = this.contextService.getConfiguration().env.recentFolders;
-		const recentFiles = this.contextService.getConfiguration().env.recentFiles;
+		ipc.send('vscode:openRecent', this.windowService.getWindowId());
 
-		let folderPicks = recentFolders.map((p, index) => {
-			return {
-				label: paths.basename(p),
-				description: paths.dirname(p),
-				path: p,
-				separator: index === 0 ? { label: nls.localize('folders', "folders") } : void 0
-			};
-		});
+		return new TPromise<boolean>((c, e, p) => {
+			ipc.once('vscode:openRecent', (event, files: string[], folders: string[]) => {
+				this.openRecent(files, folders);
 
-		let filePicks = recentFiles.map((p, index) => {
-			return {
-				label: paths.basename(p),
-				description: paths.dirname(p),
-				path: p,
-				separator: index === 0 ? { label: nls.localize('files', "files"), border: true } : void 0
-			};
+				c(true);
+			});
 		});
+	}
+
+	private openRecent(recentFiles: string[], recentFolders: string[]): void {
+		function toPick(path: string, separator: ISeparator, isFolder: boolean): IFilePickOpenEntry {
+			return {
+				resource: URI.file(path),
+				isFolder,
+				label: paths.basename(path),
+				description: paths.dirname(path),
+				separator,
+				run: (context) => runPick(path, context)
+			};
+		}
+
+		function runPick(path: string, context): void {
+			const newWindow = context.keymods.indexOf(KeyMod.CtrlCmd) >= 0;
+
+			ipc.send('vscode:windowOpen', [path], newWindow);
+		}
+
+		const folderPicks: IFilePickOpenEntry[] = recentFolders.map((p, index) => toPick(p, index === 0 ? { label: nls.localize('folders', "folders") } : void 0, true));
+		const filePicks: IFilePickOpenEntry[] = recentFiles.map((p, index) => toPick(p, index === 0 ? { label: nls.localize('files', "files"), border: true } : void 0, false));
 
 		const hasWorkspace = !!this.contextService.getWorkspace();
 
-		return this.quickOpenService.pick(folderPicks.concat(...filePicks), {
+		this.quickOpenService.pick(folderPicks.concat(...filePicks), {
 			autoFocus: { autoFocusFirstEntry: !hasWorkspace, autoFocusSecondEntry: hasWorkspace },
-			placeHolder: nls.localize('openRecentPlaceHolder', "Select a path to open"),
+			placeHolder: isMacintosh ? nls.localize('openRecentPlaceHolderMac', "Select a path (hold Cmd-key to open in new window)") : nls.localize('openRecentPlaceHolder', "Select a path to open (hold Ctrl-key to open in new window)"),
 			matchOnDescription: true
-		}).then(p => {
-			if (p) {
-				ipc.send('vscode:windowOpen', [p.path]);
-			}
-
-			return true;
-		});
+		}).done(null, errors.onUnexpectedError);
 	}
 }
 
@@ -464,21 +526,100 @@ export class CloseMessagesAction extends Action {
 	}
 }
 
+export class ReportIssueAction extends Action {
+
+	public static ID = 'workbench.action.reportIssues';
+	public static LABEL = nls.localize('reportIssues', "Report Issues");
+
+	constructor(
+		id: string,
+		label: string,
+		@IMessageService private messageService: IMessageService,
+		@IIntegrityService private integrityService: IIntegrityService,
+		@IExtensionManagementService private extensionManagementService: IExtensionManagementService,
+		@IWorkbenchEditorService private editorService: IWorkbenchEditorService
+	) {
+		super(id, label);
+	}
+
+	public run(): TPromise<boolean> {
+		return this.integrityService.isPure().then(res => {
+			return this.extensionManagementService.getInstalled(LocalExtensionType.User).then(extensions => {
+				const issueUrl = this.generateNewIssueUrl(product.reportIssueUrl, pkg.name, pkg.version, product.commit, product.date, res.isPure, extensions);
+
+				window.open(issueUrl);
+
+				return TPromise.as(true);
+			});
+		});
+	}
+
+	private generateNewIssueUrl(baseUrl: string, name: string, version: string, commit: string, date: string, isPure: boolean, extensions: ILocalExtension[]): string {
+		// Avoid backticks, these can trigger XSS detectors. (https://github.com/Microsoft/vscode/issues/13098)
+		const osVersion = `${os.type()} ${os.arch()} ${os.release()}`;
+		const queryStringPrefix = baseUrl.indexOf('?') === -1 ? '?' : '&';
+		const body = encodeURIComponent(
+			`- VSCode Version: ${name} ${version}${isPure ? '' : ' **[Unsupported]**'} (${product.commit || 'Commit unknown'}, ${product.date || 'Date unknown'})
+- OS Version: ${osVersion}
+- Extensions:
+
+${this.generateExtensionTable(extensions)}
+
+---
+
+Steps to Reproduce:
+
+1.
+2.`
+		);
+
+		return `${baseUrl}${queryStringPrefix}body=${body}`;
+	}
+
+	private generateExtensionTable(extensions: ILocalExtension[]): string {
+		let tableHeader = `|Extension|Author|Version|
+|---|---|---|`;
+		const table = extensions.map(e => {
+			return `|${e.manifest.name}|${e.manifest.publisher}|${e.manifest.version}|`;
+		}).join('\n');
+
+		return tableHeader + '\n' + table;
+	}
+}
+
 // --- commands
 
-KeybindingsRegistry.registerCommandDesc({
-	id: '_workbench.ipc',
-	weight: KeybindingsRegistry.WEIGHT.workbenchContrib(0),
-	handler(accessor: ServicesAccessor, args: [string, any[]]) {
-		const ipcMessage = args[0];
-		const ipcArgs = args[1];
+CommandsRegistry.registerCommand('_workbench.ipc', function (accessor: ServicesAccessor, ipcMessage: string, ipcArgs: any[]) {
+	if (ipcMessage && Array.isArray(ipcArgs)) {
+		ipc.send(ipcMessage, ...ipcArgs);
+	} else {
+		ipc.send(ipcMessage);
+	}
+});
 
-		if (ipcMessage && Array.isArray(ipcArgs)) {
-			ipc.send(ipcMessage, ...ipcArgs);
-		} else {
-			ipc.send(ipcMessage);
-		}
-	},
-	context: undefined,
-	primary: undefined
+CommandsRegistry.registerCommand('_workbench.diff', function (accessor: ServicesAccessor, args: [URI, URI, string]) {
+	const editorService = accessor.get(IWorkbenchEditorService);
+	let [left, right, label] = args;
+
+	if (!label) {
+		label = nls.localize('diffLeftRightLabel', "{0} ⟷ {1}", left.toString(true), right.toString(true));
+	}
+
+	return TPromise.join([editorService.createInput({ resource: left }), editorService.createInput({ resource: right })]).then(inputs => {
+		const [left, right] = inputs;
+
+		const diff = new DiffEditorInput(label, void 0, <EditorInput>left, <EditorInput>right);
+		return editorService.openEditor(diff);
+	}).then(() => {
+		return void 0;
+	});
+});
+
+CommandsRegistry.registerCommand('_workbench.open', function (accessor: ServicesAccessor, args: [URI, number]) {
+	const editorService = accessor.get(IWorkbenchEditorService);
+	const [resource, column] = args;
+
+	return editorService.openEditor({ resource }, column).then(() => {
+		return void 0;
+	});
 });

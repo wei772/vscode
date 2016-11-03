@@ -4,8 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {TPromise} from 'vs/base/common/winjs.base';
-import {createDecorator, ServiceIdentifier} from 'vs/platform/instantiation/common/instantiation';
+import { TPromise } from 'vs/base/common/winjs.base';
+import { createDecorator, ServiceIdentifier } from 'vs/platform/instantiation/common/instantiation';
 
 export enum Parts {
 	ACTIVITYBAR_PART,
@@ -20,10 +20,10 @@ export enum Position {
 	RIGHT
 }
 
-export var IPartService = createDecorator<IPartService>('partService');
+export const IPartService = createDecorator<IPartService>('partService');
 
 export interface IPartService {
-	serviceId : ServiceIdentifier<any>;
+	_serviceBrand: ServiceIdentifier<any>;
 
 	/**
 	 * Asks the part service to layout all parts.
@@ -46,9 +46,19 @@ export interface IPartService {
 	hasFocus(part: Parts): boolean;
 
 	/**
+	 * Returns the parts HTML element, if there is one.
+	 */
+	getContainer(part: Parts): HTMLElement;
+
+	/**
 	 * Returns iff the part is visible.
 	 */
 	isVisible(part: Parts): boolean;
+
+	/**
+	 * Checks if the statusbar is currently hidden or not
+	 */
+	isStatusBarHidden(): boolean;
 
 	/**
 	 * Checks if the sidebar is currently hidden or not
@@ -71,15 +81,15 @@ export interface IPartService {
 	setPanelHidden(hidden: boolean): void;
 
 	/**
+	 * Maximizes the panel height if the panel is not already maximized.
+	 * Shrinks the panel to the default starting size if the panel is maximized.
+	 */
+	toggleMaximizedPanel(): void;
+
+	/**
 	 * Gets the current side bar position. Note that the sidebar can be hidden too.
 	 */
 	getSideBarPosition(): Position;
-
-	/**
-	 * Sets the side bar position. If the side bar is hidden, the side bar will
-	 * also be made visible.
-	 */
-	setSideBarPosition(position: Position): void;
 
 	/**
 	 * Adds a class to the workbench part.
@@ -90,4 +100,14 @@ export interface IPartService {
 	 * Removes a class from the workbench part.
 	 */
 	removeClass(clazz: string): void;
+
+	/**
+	 * Returns the identifier of the element that contains the workbench.
+	 */
+	getWorkbenchElementId(): string;
+
+	/**
+	 * Enables to restore the contents of the sidebar after a restart.
+	 */
+	setRestoreSidebar(): void;
 }

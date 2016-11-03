@@ -6,12 +6,16 @@
 'use strict';
 
 import { Promise, TPromise } from 'vs/base/common/winjs.base';
-import { isBoolean } from 'vs/base/common/types';
+import { isBoolean, isNumber } from 'vs/base/common/types';
 import https = require('https');
 import http = require('http');
+import { Stream } from 'stream';
 import { parse as parseUrl } from 'url';
 import { createWriteStream } from 'fs';
 import { assign } from 'vs/base/common/objects';
+import { createGunzip } from 'zlib';
+
+export type Agent = any;
 
 export interface IRequestOptions {
 	type?: string;
@@ -21,23 +25,24 @@ export interface IRequestOptions {
 	headers?: any;
 	timeout?: number;
 	data?: any;
-	agent?: any;
+	agent?: Agent;
 	followRedirects?: number;
 	strictSSL?: boolean;
 }
 
-export interface IRequestResult {
+export interface IRequestContext {
 	req: http.ClientRequest;
 	res: http.ClientResponse;
+	stream: Stream;
 }
 
-export function request(options: IRequestOptions): TPromise<IRequestResult> {
+export function request(options: IRequestOptions): TPromise<IRequestContext> {
 	let req: http.ClientRequest;
 
-	return new TPromise<IRequestResult>((c, e) => {
-		let endpoint = parseUrl(options.url);
-
-		let opts: https.RequestOptions = {
+	return new TPromise<IRequestContext>((c, e) => {
+		const endpoint = parseUrl(options.url);
+		const rawRequest = endpoint.protocol === 'https:' ? https.request : http.request;
+		const opts: https.RequestOptions = {
 			hostname: endpoint.hostname,
 			port: endpoint.port ? parseInt(endpoint.port) : (endpoint.protocol === 'https:' ? 443 : 80),
 			path: endpoint.path,
@@ -51,58 +56,92 @@ export function request(options: IRequestOptions): TPromise<IRequestResult> {
 			opts.auth = options.user + ':' + options.password;
 		}
 
-		let protocol = endpoint.protocol === 'https:' ? https : http;
-		req = protocol.request(opts, (res: http.ClientResponse) => {
-			if (res.statusCode >= 300 && res.statusCode < 400 && options.followRedirects && options.followRedirects > 0 && res.headers['location']) {
-				c(<any> request(assign({}, options, {
+		req = rawRequest(opts, (res: http.ClientResponse) => {
+			const followRedirects = isNumber(options.followRedirects) ? options.followRedirects : 3;
+
+			if (res.statusCode >= 300 && res.statusCode < 400 && followRedirects > 0 && res.headers['location']) {
+				request(assign({}, options, {
 					url: res.headers['location'],
-					followRedirects: options.followRedirects - 1
-				})));
+					followRedirects: followRedirects - 1
+				})).done(c, e);
 			} else {
-				c({ req, res });
+				let stream: Stream = res;
+
+				if (res.headers['content-encoding'] === 'gzip') {
+					stream = stream.pipe(createGunzip());
+				}
+
+				c({ req, res, stream });
 			}
 		});
+
 		req.on('error', e);
 
 		if (options.timeout) {
 			req.setTimeout(options.timeout);
 		}
+
 		if (options.data) {
 			req.write(options.data);
 		}
 
 		req.end();
 	},
-	() => req && req.abort());
+		() => req && req.abort());
 }
 
-export function download(filePath: string, opts: IRequestOptions): TPromise<void> {
-	return request(assign(opts, { followRedirects: 3 })).then(pair => new TPromise<void>((c, e) => {
-		let out = createWriteStream(filePath);
+function isSuccess(context: IRequestContext): boolean {
+	return (context.res.statusCode >= 200 && context.res.statusCode < 300) || context.res.statusCode === 1223;
+}
+
+function hasNoContent(context: IRequestContext): boolean {
+	return context.res.statusCode === 204;
+}
+
+export function download(filePath: string, context: IRequestContext): TPromise<void> {
+	return new TPromise<void>((c, e) => {
+		const out = createWriteStream(filePath);
 
 		out.once('finish', () => c(null));
-		pair.res.once('error', e);
-		pair.res.pipe(out);
-	}));
+		context.stream.once('error', e);
+		context.stream.pipe(out);
+	});
 }
 
-export function json<T>(opts: IRequestOptions): TPromise<T> {
-	return request(opts).then(pair => new Promise((c, e) => {
-		if (!((pair.res.statusCode >= 200 && pair.res.statusCode < 300) || pair.res.statusCode === 1223)) {
-			return e('Server returned ' + pair.res.statusCode);
+export function asText(context: IRequestContext): TPromise<string> {
+	return new Promise((c, e) => {
+		if (!isSuccess(context)) {
+			return e('Server returned ' + context.res.statusCode);
 		}
 
-		if (pair.res.statusCode === 204) {
+		if (hasNoContent(context)) {
 			return c(null);
 		}
 
-		if (!/application\/json/.test(pair.res.headers['content-type'])) {
+		let buffer: string[] = [];
+		context.stream.on('data', d => buffer.push(d));
+		context.stream.on('end', () => c(buffer.join('')));
+		context.stream.on('error', e);
+	});
+}
+
+export function asJson<T>(context: IRequestContext): TPromise<T> {
+	return new Promise((c, e) => {
+		if (!isSuccess(context)) {
+			return e('Server returned ' + context.res.statusCode);
+		}
+
+		if (hasNoContent(context)) {
+			return c(null);
+		}
+
+		if (!/application\/json/.test(context.res.headers['content-type'])) {
 			return e('Response doesn\'t appear to be JSON');
 		}
 
-		let buffer: string[] = [];
-		pair.res.on('data', d => buffer.push(d));
-		pair.res.on('end', () => c(JSON.parse(buffer.join(''))));
-		pair.res.on('error', e);
-	}));
+		const buffer: string[] = [];
+		context.stream.on('data', d => buffer.push(d));
+		context.stream.on('end', () => c(JSON.parse(buffer.join(''))));
+		context.stream.on('error', e);
+	});
 }

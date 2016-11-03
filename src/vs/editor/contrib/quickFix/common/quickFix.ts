@@ -5,46 +5,33 @@
 
 'use strict';
 
-import {illegalArgument, onUnexpectedError} from 'vs/base/common/errors';
+import { illegalArgument, onUnexpectedError } from 'vs/base/common/errors';
 import URI from 'vs/base/common/uri';
-import {TPromise} from 'vs/base/common/winjs.base';
-import {Range} from 'vs/editor/common/core/range';
-import {IModel, IRange} from 'vs/editor/common/editorCommon';
-import {CommonEditorRegistry} from 'vs/editor/common/editorCommonExtensions';
-import {QuickFixRegistry, IQuickFix, IQuickFixSupport} from 'vs/editor/common/modes';
-import {IModelService} from 'vs/editor/common/services/modelService';
+import { TPromise } from 'vs/base/common/winjs.base';
+import { Range } from 'vs/editor/common/core/range';
+import { IReadOnlyModel } from 'vs/editor/common/editorCommon';
+import { CommonEditorRegistry } from 'vs/editor/common/editorCommonExtensions';
+import { CodeActionProviderRegistry, CodeAction } from 'vs/editor/common/modes';
+import { IModelService } from 'vs/editor/common/services/modelService';
+import { asWinJsPromise } from 'vs/base/common/async';
 
-export interface IQuickFix2 extends IQuickFix {
-	support: IQuickFixSupport;
-	id: string;
-}
+export function getCodeActions(model: IReadOnlyModel, range: Range): TPromise<CodeAction[]> {
 
-export function getQuickFixes(model: IModel, range: IRange): TPromise<IQuickFix2[]> {
-
-	const quickFixes: IQuickFix2[] = [];
-	let idPool = 0;
-	const promises = QuickFixRegistry.all(model).map(support => {
-		return support.getQuickFixes(model.getAssociatedResource(), range).then(result => {
-			if (!Array.isArray(result)) {
-				return;
-			}
-			for (let fix of result) {
-				quickFixes.push({
-					command: fix.command,
-					score: fix.score,
-					id: `quickfix_#${idPool++}`,
-					support
-				});
+	const allResults: CodeAction[] = [];
+	const promises = CodeActionProviderRegistry.all(model).map(support => {
+		return asWinJsPromise(token => support.provideCodeActions(model, range, token)).then(result => {
+			if (Array.isArray(result)) {
+				allResults.push(...result);
 			}
 		}, err => {
 			onUnexpectedError(err);
 		});
 	});
 
-	return TPromise.join(promises).then(() => quickFixes);
+	return TPromise.join(promises).then(() => allResults);
 }
 
-CommonEditorRegistry.registerLanguageCommand('_executeCodeActionProvider', function(accessor, args) {
+CommonEditorRegistry.registerLanguageCommand('_executeCodeActionProvider', function (accessor, args) {
 
 	const {resource, range} = args;
 	if (!(resource instanceof URI) || !Range.isIRange(range)) {
@@ -56,5 +43,5 @@ CommonEditorRegistry.registerLanguageCommand('_executeCodeActionProvider', funct
 		throw illegalArgument();
 	}
 
-	return getQuickFixes(model, range);
+	return getCodeActions(model, model.validateRange(range));
 });

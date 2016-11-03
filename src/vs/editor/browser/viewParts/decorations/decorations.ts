@@ -7,16 +7,17 @@
 
 import 'vs/css!./decorations';
 import * as editorCommon from 'vs/editor/common/editorCommon';
-import {DynamicViewOverlay} from 'vs/editor/browser/view/dynamicViewOverlay';
-import {IRenderingContext, IViewContext} from 'vs/editor/browser/editorBrowser';
+import { DynamicViewOverlay } from 'vs/editor/browser/view/dynamicViewOverlay';
+import { ViewContext } from 'vs/editor/common/view/viewContext';
+import { IRenderingContext } from 'vs/editor/common/view/renderingContext';
 
 export class DecorationsOverlay extends DynamicViewOverlay {
 
-	private _context:IViewContext;
+	private _context: ViewContext;
 	private _lineHeight: number;
 	private _renderResult: string[];
 
-	constructor(context:IViewContext) {
+	constructor(context: ViewContext) {
 		super();
 		this._context = context;
 		this._lineHeight = this._context.configuration.editor.lineHeight;
@@ -36,52 +37,45 @@ export class DecorationsOverlay extends DynamicViewOverlay {
 	public onModelFlushed(): boolean {
 		return true;
 	}
-	public onModelDecorationsChanged(e:editorCommon.IViewDecorationsChangedEvent): boolean {
+	public onModelDecorationsChanged(e: editorCommon.IViewDecorationsChangedEvent): boolean {
 		return true;
 	}
-	public onModelLinesDeleted(e:editorCommon.IViewLinesDeletedEvent): boolean {
+	public onModelLinesDeleted(e: editorCommon.IViewLinesDeletedEvent): boolean {
 		return true;
 	}
-	public onModelLineChanged(e:editorCommon.IViewLineChangedEvent): boolean {
+	public onModelLineChanged(e: editorCommon.IViewLineChangedEvent): boolean {
 		return true;
 	}
-	public onModelLinesInserted(e:editorCommon.IViewLinesInsertedEvent): boolean {
+	public onModelLinesInserted(e: editorCommon.IViewLinesInsertedEvent): boolean {
 		return true;
 	}
-	public onCursorPositionChanged(e:editorCommon.IViewCursorPositionChangedEvent): boolean {
+	public onCursorPositionChanged(e: editorCommon.IViewCursorPositionChangedEvent): boolean {
 		return false;
 	}
-	public onCursorSelectionChanged(e:editorCommon.IViewCursorSelectionChangedEvent): boolean {
+	public onCursorSelectionChanged(e: editorCommon.IViewCursorSelectionChangedEvent): boolean {
 		return false;
 	}
-	public onCursorRevealRange(e:editorCommon.IViewRevealRangeEvent): boolean {
+	public onCursorRevealRange(e: editorCommon.IViewRevealRangeEvent): boolean {
 		return false;
 	}
-	public onConfigurationChanged(e:editorCommon.IConfigurationChangedEvent): boolean {
+	public onConfigurationChanged(e: editorCommon.IConfigurationChangedEvent): boolean {
 		if (e.lineHeight) {
 			this._lineHeight = this._context.configuration.editor.lineHeight;
 		}
 		return true;
 	}
-	public onLayoutChanged(layoutInfo:editorCommon.IEditorLayoutInfo): boolean {
+	public onLayoutChanged(layoutInfo: editorCommon.EditorLayoutInfo): boolean {
 		return true;
 	}
-	public onScrollChanged(e:editorCommon.IScrollEvent): boolean {
-		return e.vertical;
+	public onScrollChanged(e: editorCommon.IScrollEvent): boolean {
+		return e.scrollTopChanged || e.scrollWidthChanged;
 	}
 	public onZonesChanged(): boolean {
 		return true;
 	}
-	public onScrollWidthChanged(scrollWidth:number): boolean {
-		return true;
-	}
-	public onScrollHeightChanged(scrollHeight:number): boolean {
-		return false;
-	}
-
 	// --- end event handlers
 
-	public prepareRender(ctx:IRenderingContext): void {
+	public prepareRender(ctx: IRenderingContext): void {
 		if (!this.shouldRender()) {
 			throw new Error('I did not ask to render!');
 		}
@@ -126,7 +120,7 @@ export class DecorationsOverlay extends DynamicViewOverlay {
 		this._renderResult = output;
 	}
 
-	private _renderWholeLineDecorations(ctx:IRenderingContext, decorations:editorCommon.IModelDecoration[], output: string[]): void {
+	private _renderWholeLineDecorations(ctx: IRenderingContext, decorations: editorCommon.IModelDecoration[], output: string[]): void {
 		let lineHeight = String(this._lineHeight);
 		let visibleStartLineNumber = ctx.visibleRange.startLineNumber;
 		let visibleEndLineNumber = ctx.visibleRange.endLineNumber;
@@ -155,7 +149,7 @@ export class DecorationsOverlay extends DynamicViewOverlay {
 		}
 	}
 
-	private _renderNormalDecorations(ctx:IRenderingContext, decorations:editorCommon.IModelDecoration[], output: string[]): void {
+	private _renderNormalDecorations(ctx: IRenderingContext, decorations: editorCommon.IModelDecoration[], output: string[]): void {
 		let lineHeight = String(this._lineHeight);
 		let visibleStartLineNumber = ctx.visibleRange.startLineNumber;
 
@@ -165,7 +159,7 @@ export class DecorationsOverlay extends DynamicViewOverlay {
 			if (d.options.isWholeLine) {
 				continue;
 			}
-			let linesVisibleRanges = ctx.linesVisibleRangesForRange(d.range, false);
+			let linesVisibleRanges = ctx.linesVisibleRangesForRange(d.range, /*TODO@Alex*/d.options.className === 'findMatch');
 			if (!linesVisibleRanges) {
 				continue;
 			}
@@ -194,7 +188,7 @@ export class DecorationsOverlay extends DynamicViewOverlay {
 		}
 	}
 
-	public render(startLineNumber:number, lineNumber:number): string {
+	public render(startLineNumber: number, lineNumber: number): string {
 		if (!this._renderResult) {
 			return '';
 		}

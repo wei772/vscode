@@ -7,10 +7,12 @@
 
 import 'vs/css!./scrollDecoration';
 import * as dom from 'vs/base/browser/dom';
-import {StyleMutator} from 'vs/base/browser/styleMutator';
-import {IConfigurationChangedEvent, IEditorLayoutInfo, IScrollEvent} from 'vs/editor/common/editorCommon';
-import {ClassNames, IRenderingContext, IRestrictedRenderingContext, IViewContext} from 'vs/editor/browser/editorBrowser';
-import {ViewPart} from 'vs/editor/browser/view/viewPart';
+import { StyleMutator } from 'vs/base/browser/styleMutator';
+import { IConfigurationChangedEvent, EditorLayoutInfo, IScrollEvent } from 'vs/editor/common/editorCommon';
+import { ClassNames } from 'vs/editor/browser/editorBrowser';
+import { ViewPart } from 'vs/editor/browser/view/viewPart';
+import { ViewContext } from 'vs/editor/common/view/viewContext';
+import { IRenderingContext, IRestrictedRenderingContext } from 'vs/editor/common/view/renderingContext';
 
 export class ScrollDecorationViewPart extends ViewPart {
 
@@ -20,18 +22,18 @@ export class ScrollDecorationViewPart extends ViewPart {
 	private _shouldShow: boolean;
 	private _useShadows: boolean;
 
-	constructor(context: IViewContext) {
+	constructor(context: ViewContext) {
 		super(context);
 
 		this._scrollTop = 0;
 		this._width = 0;
 		this._shouldShow = false;
-		this._useShadows = this._context.configuration.editor.scrollbar.useShadows;
+		this._useShadows = this._context.configuration.editor.viewInfo.scrollbar.useShadows;
 		this._domNode = document.createElement('div');
 	}
 
 	private _updateShouldShow(): boolean {
-		var newShouldShow = (this._useShadows && this._scrollTop > 0);
+		let newShouldShow = (this._useShadows && this._scrollTop > 0);
 		if (this._shouldShow !== newShouldShow) {
 			this._shouldShow = newShouldShow;
 			return true;
@@ -46,12 +48,12 @@ export class ScrollDecorationViewPart extends ViewPart {
 	// --- begin event handlers
 
 	public onConfigurationChanged(e: IConfigurationChangedEvent): boolean {
-		if (e.scrollbar) {
-			this._useShadows = this._context.configuration.editor.scrollbar.useShadows;
+		if (e.viewInfo.scrollbar) {
+			this._useShadows = this._context.configuration.editor.viewInfo.scrollbar.useShadows;
 		}
 		return this._updateShouldShow();
 	}
-	public onLayoutChanged(layoutInfo: IEditorLayoutInfo): boolean {
+	public onLayoutChanged(layoutInfo: EditorLayoutInfo): boolean {
 		if (this._width !== layoutInfo.width) {
 			this._width = layoutInfo.width;
 			return true;
@@ -65,14 +67,14 @@ export class ScrollDecorationViewPart extends ViewPart {
 
 	// --- end event handlers
 
-	public prepareRender(ctx:IRenderingContext): void {
+	public prepareRender(ctx: IRenderingContext): void {
 		// Nothing to read
 		if (!this.shouldRender()) {
 			throw new Error('I did not ask to render!');
 		}
 	}
 
-	public render(ctx:IRestrictedRenderingContext): void {
+	public render(ctx: IRestrictedRenderingContext): void {
 		StyleMutator.setWidth(this._domNode, this._width);
 		dom.toggleClass(this._domNode, ClassNames.SCROLL_DECORATION, this._shouldShow);
 	}

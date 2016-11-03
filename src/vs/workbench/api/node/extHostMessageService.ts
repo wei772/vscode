@@ -4,23 +4,20 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import nls = require('vs/nls');
-import {Remotable, IThreadService} from 'vs/platform/thread/common/thread';
-import {IMessageService} from 'vs/platform/message/common/message';
+import { IThreadService } from 'vs/workbench/services/thread/common/threadService';
 import Severity from 'vs/base/common/severity';
-import {Action} from 'vs/base/common/actions';
-import {TPromise as Promise} from 'vs/base/common/winjs.base';
 import vscode = require('vscode');
+import { MainContext, MainThreadMessageServiceShape } from './extHost.protocol';
 
 export class ExtHostMessageService {
 
-	private _proxy: MainThreadMessageService;
+	private _proxy: MainThreadMessageServiceShape;
 
-	constructor(@IThreadService threadService: IThreadService) {
-		this._proxy = threadService.getRemotable(MainThreadMessageService);
+	constructor(threadService: IThreadService) {
+		this._proxy = threadService.get(MainContext.MainThreadMessageService);
 	}
 
-	showMessage(severity: Severity, message: string, commands: (string|vscode.MessageItem)[]): Thenable<string|vscode.MessageItem> {
+	showMessage(severity: Severity, message: string, commands: (string | vscode.MessageItem)[]): Thenable<string | vscode.MessageItem> {
 
 		const items: { title: string; isCloseAffordance: boolean; handle: number; }[] = [];
 
@@ -28,9 +25,11 @@ export class ExtHostMessageService {
 			let command = commands[handle];
 			if (typeof command === 'string') {
 				items.push({ title: command, handle, isCloseAffordance: false });
-			} else {
+			} else if (typeof command === 'object') {
 				let {title, isCloseAffordance} = command;
 				items.push({ title, isCloseAffordance, handle });
+			} else {
+				console.warn('Invalid message item:', command);
 			}
 		}
 
@@ -38,54 +37,6 @@ export class ExtHostMessageService {
 			if (typeof handle === 'number') {
 				return commands[handle];
 			}
-		});
-	}
-}
-
-@Remotable.MainContext('MainThreadMessageService')
-export class MainThreadMessageService {
-
-	private _messageService: IMessageService;
-
-	constructor(@IMessageService messageService:IMessageService) {
-		this._messageService = messageService;
-	}
-
-	$showMessage(severity: Severity, message: string, commands: { title: string; isCloseAffordance: boolean; handle: number;}[]): Thenable<number> {
-
-		let hide: (handle?: number) => void;
-		let actions: Action[] = [];
-		let hasCloseAffordance = false;
-
-		commands.forEach(command => {
-			if (command.isCloseAffordance === true) {
-				hasCloseAffordance = true;
-			}
-			actions.push(new Action('_extension_message_handle_' + command.handle, command.title, undefined, true, () => {
-				hide(command.handle);
-				return Promise.as(undefined);
-			}));
-		});
-
-		if (!hasCloseAffordance) {
-			actions.unshift(new Action('__close', nls.localize('close', "Close"), undefined, true, () => {
-				hide();
-				return Promise.as(undefined);
-			}));
-		}
-
-		return new Promise<number>((c) => {
-			let messageHide: Function;
-
-			hide = (handle?: number) => {
-				messageHide();
-				c(handle);
-			};
-
-			messageHide = this._messageService.show(severity, {
-				message,
-				actions
-			});
 		});
 	}
 }

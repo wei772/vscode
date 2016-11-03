@@ -4,17 +4,17 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {TPromise} from 'vs/base/common/winjs.base';
+import { TPromise } from 'vs/base/common/winjs.base';
 import collections = require('vs/base/common/collections');
-import {Registry} from 'vs/platform/platform';
-import {IAction} from 'vs/base/common/actions';
-import {KeybindingsRegistry, ICommandDescriptor} from 'vs/platform/keybinding/common/keybindingsRegistry';
-import {IPartService} from 'vs/workbench/services/part/common/partService';
-import {ICommandHandler} from 'vs/platform/keybinding/common/keybindingService';
-import {SyncActionDescriptor} from 'vs/platform/actions/common/actions';
-import {IMessageService} from 'vs/platform/message/common/message';
-import {ITelemetryService} from 'vs/platform/telemetry/common/telemetry';
-import {IInstantiationService} from 'vs/platform/instantiation/common/instantiation';
+import { Registry } from 'vs/platform/platform';
+import { IAction } from 'vs/base/common/actions';
+import { KeybindingsRegistry, ICommandAndKeybindingRule } from 'vs/platform/keybinding/common/keybindingsRegistry';
+import { IPartService } from 'vs/workbench/services/part/common/partService';
+import { ICommandHandler } from 'vs/platform/commands/common/commands';
+import { SyncActionDescriptor } from 'vs/platform/actions/common/actions';
+import { IMessageService } from 'vs/platform/message/common/message';
+import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
+import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
 import Severity from 'vs/base/common/severity';
 
 export const Extensions = {
@@ -125,15 +125,15 @@ class WorkbenchActionRegistry implements IWorkbenchActionRegistry {
 Registry.add(Extensions.WorkbenchActions, new WorkbenchActionRegistry());
 
 function registerWorkbenchCommandFromAction(descriptor: SyncActionDescriptor): void {
-	let context = descriptor.keybindingContext;
+	let when = descriptor.keybindingContext;
 	let weight = (typeof descriptor.keybindingWeight === 'undefined' ? KeybindingsRegistry.WEIGHT.workbenchContrib() : descriptor.keybindingWeight);
 	let keybindings = descriptor.keybindings;
 
-	let desc: ICommandDescriptor = {
+	let desc: ICommandAndKeybindingRule = {
 		id: descriptor.id,
 		handler: createCommandHandler(descriptor),
 		weight: weight,
-		context: context,
+		when: when,
 		primary: keybindings && keybindings.primary,
 		secondary: keybindings && keybindings.secondary,
 		win: keybindings && keybindings.win,
@@ -141,7 +141,7 @@ function registerWorkbenchCommandFromAction(descriptor: SyncActionDescriptor): v
 		linux: keybindings && keybindings.linux
 	};
 
-	KeybindingsRegistry.registerCommandDesc(desc);
+	KeybindingsRegistry.registerCommandAndKeybindingRule(desc);
 }
 
 export function createCommandHandler(descriptor: SyncActionDescriptor): ICommandHandler {
@@ -149,10 +149,10 @@ export function createCommandHandler(descriptor: SyncActionDescriptor): ICommand
 
 		let messageService = accessor.get(IMessageService);
 		let instantiationService = accessor.get(IInstantiationService);
-		let telemetryServce = accessor.get(ITelemetryService);
+		let telemetryService = accessor.get(ITelemetryService);
 		let partService = accessor.get(IPartService);
 
-		TPromise.as(triggerAndDisposeAction(instantiationService, telemetryServce, partService, descriptor, args)).done(null, (err) => {
+		TPromise.as(triggerAndDisposeAction(instantiationService, telemetryService, partService, descriptor, args)).done(null, (err) => {
 			messageService.show(Severity.Error, err);
 		});
 	};
@@ -169,7 +169,7 @@ export function triggerAndDisposeAction(instantitationService: IInstantiationSer
 	}
 
 	if (telemetryService) {
-		telemetryService.publicLog('workbenchActionExecuted', { id: actionInstance.id, from: args.from || 'keybinding' });
+		telemetryService.publicLog('workbenchActionExecuted', { id: actionInstance.id, from: args && args.from || 'keybinding' });
 	}
 
 	// run action when workbench is created

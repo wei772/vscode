@@ -4,10 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {MarkedString, CompletionItemKind, CompletionItem} from 'vscode-languageserver';
+import { MarkedString, CompletionItemKind, CompletionItem } from 'vscode-languageserver';
 import Strings = require('../utils/strings');
-import {IJSONWorkerContribution, ISuggestionsCollector} from '../jsonContributions';
-import {JSONLocation} from '../jsonLocation';
+import { JSONWorkerContribution, JSONPath, CompletionsCollector } from 'vscode-json-languageservice';
 
 import * as nls from 'vscode-nls';
 const localize = nls.loadMessageBundle();
@@ -22,12 +21,12 @@ let globProperties: CompletionItem[] = [
 ];
 
 let globValues: CompletionItem[] = [
-	{ kind: CompletionItemKind.Value, label: localize('trueLabel', "True"), insertText: 'true', documentation: localize('trueDescription', "Enable the pattern.") },
-	{ kind: CompletionItemKind.Value, label: localize('falseLabel', "False"), insertText: 'false', documentation: localize('falseDescription', "Disable the pattern.") },
+	{ kind: CompletionItemKind.Value, label: localize('trueLabel', "true"), insertText: 'true', documentation: localize('trueDescription', "Enable the pattern.") },
+	{ kind: CompletionItemKind.Value, label: localize('falseLabel', "false"), insertText: 'false', documentation: localize('falseDescription', "Disable the pattern.") },
 	{ kind: CompletionItemKind.Value, label: localize('derivedLabel', "Files with Siblings by Name"), insertText: '{ "when": "$(basename).{{extension}}" }', documentation: localize('siblingsDescription', "Match files that have siblings with the same name but a different extension.") }
 ];
 
-export class GlobPatternContribution implements IJSONWorkerContribution {
+export class GlobPatternContribution implements JSONWorkerContribution {
 
 	constructor() {
 	}
@@ -36,27 +35,33 @@ export class GlobPatternContribution implements IJSONWorkerContribution {
 		return Strings.endsWith(resource, '/settings.json');
 	}
 
-	public collectDefaultSuggestions(resource: string, result: ISuggestionsCollector): Thenable<any> {
+	public collectDefaultCompletions(resource: string, result: CompletionsCollector): Thenable<any> {
 		return null;
 	}
 
-	public collectPropertySuggestions(resource: string, location: JSONLocation, currentWord: string, addValue: boolean, isLast: boolean, result: ISuggestionsCollector): Thenable<any> {
-		if (this.isSettingsFile(resource) && (location.matches(['files.exclude']) || location.matches(['search.exclude']))) {
-			globProperties.forEach((e) => result.add(e));
+	public collectPropertyCompletions(resource: string, location: JSONPath, currentWord: string, addValue: boolean, isLast: boolean, result: CompletionsCollector): Thenable<any> {
+		if (this.isSettingsFile(resource) && location.length === 1 && ((location[0] === 'files.exclude') || (location[0] === 'search.exclude'))) {
+			globProperties.forEach(e => {
+				e.filterText = e.insertText;
+				result.add(e);
+			});
 		}
 
 		return null;
 	}
 
-	public collectValueSuggestions(resource: string, location: JSONLocation, currentKey: string, result: ISuggestionsCollector): Thenable<any> {
-		if (this.isSettingsFile(resource) && (location.matches(['files.exclude']) || location.matches(['search.exclude']))) {
-			globValues.forEach((e) => result.add(e));
+	public collectValueCompletions(resource: string, location: JSONPath, currentKey: string, result: CompletionsCollector): Thenable<any> {
+		if (this.isSettingsFile(resource) && location.length === 1 && ((location[0] === 'files.exclude') || (location[0] === 'search.exclude'))) {
+			globValues.forEach(e => {
+				e.filterText = e.insertText;
+				result.add(e);
+			});
 		}
 
 		return null;
 	}
 
-	public getInfoContribution(resource: string, location: JSONLocation): Thenable<MarkedString[]> {
+	public getInfoContribution(resource: string, location: JSONPath): Thenable<MarkedString[]> {
 		return null;
 	}
 }

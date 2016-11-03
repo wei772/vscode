@@ -4,30 +4,14 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import * as strings from 'vs/base/common/strings';
-import {TPromise} from 'vs/base/common/winjs.base';
-import {IModel, IPosition} from 'vs/editor/common/editorCommon';
+import { TPromise } from 'vs/base/common/winjs.base';
 import * as modes from 'vs/editor/common/modes';
-import {ModeTransition} from 'vs/editor/common/core/modeTransition';
+import { ModeTransition } from 'vs/editor/common/core/modeTransition';
+import { Token } from 'vs/editor/common/core/token';
+import { LineTokens, StandardTokenType } from 'vs/editor/common/core/lineTokens';
 
-export class Token implements modes.IToken {
-	_tokenTrait: void;
-
-	public startIndex:number;
-	public type:string;
-
-	constructor(startIndex:number, type:string) {
-		this.startIndex = startIndex;
-		this.type = type;
-	}
-
-	public toString(): string {
-		return '(' + this.startIndex + ', ' + this.type + ')';
-	}
-}
-
-export class LineTokens implements modes.ILineTokens {
-	_lineTokensTrait: void;
+export class RawLineTokens implements modes.ILineTokens {
+	_lineTokensBrand: void;
 
 	tokens: Token[];
 	modeTransitions: ModeTransition[];
@@ -35,7 +19,7 @@ export class LineTokens implements modes.ILineTokens {
 	endState: modes.IState;
 	retokenize: TPromise<void>;
 
-	constructor(tokens:Token[], modeTransitions: ModeTransition[], actualStopOffset:number, endState:modes.IState) {
+	constructor(tokens: Token[], modeTransitions: ModeTransition[], actualStopOffset: number, endState: modes.IState) {
 		this.tokens = tokens;
 		this.modeTransitions = modeTransitions;
 		this.actualStopOffset = actualStopOffset;
@@ -44,201 +28,83 @@ export class LineTokens implements modes.ILineTokens {
 	}
 }
 
-export function handleEvent<T>(context:modes.ILineContext, offset:number, runner:(mode:modes.IMode, newContext:modes.ILineContext, offset:number)=>T):T {
-	var modeTransitions = context.modeTransitions;
+export function createScopedLineTokens(context: LineTokens, offset: number): ScopedLineTokens {
+	let modeTransitions = context.modeTransitions;
 	if (modeTransitions.length === 1) {
-		return runner(modeTransitions[0].mode, context, offset);
+		return new ScopedLineTokens(context, modeTransitions[0].modeId, 0, context.getTokenCount(), 0, context.getLineContent().length);
 	}
 
-	var modeIndex = ModeTransition.findIndexInSegmentsArray(modeTransitions, offset);
-	var nestedMode = modeTransitions[modeIndex].mode;
-	var modeStartIndex = modeTransitions[modeIndex].startIndex;
+	let modeIndex = ModeTransition.findIndexInSegmentsArray(modeTransitions, offset);
+	let nestedModeId = modeTransitions[modeIndex].modeId;
+	let modeStartIndex = modeTransitions[modeIndex].startIndex;
 
-	var firstTokenInModeIndex = context.findIndexOfOffset(modeStartIndex);
-	var nextCharacterAfterModeIndex = -1;
-	var nextTokenAfterMode = -1;
+	let firstTokenIndex = context.findTokenIndexAtOffset(modeStartIndex);
+	let lastCharOffset = -1;
+	let lastTokenIndex = -1;
 	if (modeIndex + 1 < modeTransitions.length) {
-		nextTokenAfterMode = context.findIndexOfOffset(modeTransitions[modeIndex + 1].startIndex);
-		nextCharacterAfterModeIndex = context.getTokenStartIndex(nextTokenAfterMode);
+		lastTokenIndex = context.findTokenIndexAtOffset(modeTransitions[modeIndex + 1].startIndex);
+		lastCharOffset = context.getTokenStartOffset(lastTokenIndex);
 	} else {
-		nextTokenAfterMode = context.getTokenCount();
-		nextCharacterAfterModeIndex = context.getLineContent().length;
+		lastTokenIndex = context.getTokenCount();
+		lastCharOffset = context.getLineContent().length;
 	}
 
-	var firstTokenCharacterOffset = context.getTokenStartIndex(firstTokenInModeIndex);
-	var newCtx = new FilteredLineContext(context, nestedMode, firstTokenInModeIndex, nextTokenAfterMode, firstTokenCharacterOffset, nextCharacterAfterModeIndex);
-	return runner(nestedMode, newCtx, offset - firstTokenCharacterOffset);
+	let firstCharOffset = context.getTokenStartOffset(firstTokenIndex);
+	return new ScopedLineTokens(context, nestedModeId, firstTokenIndex, lastTokenIndex, firstCharOffset, lastCharOffset);
 }
 
-/**
- * Returns {{true}} if the line token at the specified
- * offset matches one of the provided types. Matching
- * happens on a substring start from the end, unless
- * anywhereInToken is set to true in which case matches
- * happen on a substring at any position.
- */
-export function isLineToken(context:modes.ILineContext, offset:number, types:string[], anywhereInToken:boolean = false):boolean {
+export class ScopedLineTokens {
+	_scopedLineTokensBrand: void;
 
-	if (!Array.isArray(types) || types.length === 0) {
-		return false;
-	}
+	public readonly modeId: string;
+	private readonly _actual: LineTokens;
+	private readonly _firstTokenIndex: number;
+	private readonly _lastTokenIndex: number;
+	public readonly firstCharOffset: number;
+	private readonly _lastCharOffset: number;
 
-	if (context.getLineContent().length <= offset) {
-		return false;
-	}
-
-	var tokenIdx = context.findIndexOfOffset(offset);
-	var type = context.getTokenType(tokenIdx);
-
-	for (var i = 0, len = types.length; i < len; i++) {
-		if (anywhereInToken) {
-			if (type.indexOf(types[i]) >= 0) {
-				return true;
-			}
-		}
-		else {
-			if (strings.endsWith(type, types[i])) {
-				return true;
-			}
-		}
-	}
-
-	return false;
-}
-
-export class FilteredLineContext implements modes.ILineContext {
-
-	public modeTransitions: ModeTransition[];
-
-	private _actual:modes.ILineContext;
-	private _firstTokenInModeIndex:number;
-	private _nextTokenAfterMode:number;
-	private _firstTokenCharacterOffset:number;
-	private _nextCharacterAfterModeIndex:number;
-
-	constructor(actual:modes.ILineContext, mode:modes.IMode,
-			firstTokenInModeIndex:number, nextTokenAfterMode:number,
-			firstTokenCharacterOffset:number, nextCharacterAfterModeIndex:number) {
-
-		this.modeTransitions = [new ModeTransition(0, mode)];
+	constructor(
+		actual: LineTokens,
+		modeId: string,
+		firstTokenIndex: number,
+		lastTokenIndex: number,
+		firstCharOffset: number,
+		lastCharOffset: number
+	) {
 		this._actual = actual;
-		this._firstTokenInModeIndex = firstTokenInModeIndex;
-		this._nextTokenAfterMode = nextTokenAfterMode;
-		this._firstTokenCharacterOffset = firstTokenCharacterOffset;
-		this._nextCharacterAfterModeIndex = nextCharacterAfterModeIndex;
+		this.modeId = modeId;
+		this._firstTokenIndex = firstTokenIndex;
+		this._lastTokenIndex = lastTokenIndex;
+		this.firstCharOffset = firstCharOffset;
+		this._lastCharOffset = lastCharOffset;
 	}
 
 	public getLineContent(): string {
 		var actualLineContent = this._actual.getLineContent();
-		return actualLineContent.substring(this._firstTokenCharacterOffset, this._nextCharacterAfterModeIndex);
+		return actualLineContent.substring(this.firstCharOffset, this._lastCharOffset);
 	}
 
 	public getTokenCount(): number {
-		return this._nextTokenAfterMode - this._firstTokenInModeIndex;
+		return this._lastTokenIndex - this._firstTokenIndex;
 	}
 
-	public findIndexOfOffset(offset:number): number {
-		return this._actual.findIndexOfOffset(offset + this._firstTokenCharacterOffset) - this._firstTokenInModeIndex;
+	public findTokenIndexAtOffset(offset: number): number {
+		return this._actual.findTokenIndexAtOffset(offset + this.firstCharOffset) - this._firstTokenIndex;
 	}
 
-	public getTokenStartIndex(tokenIndex:number): number {
-		return this._actual.getTokenStartIndex(tokenIndex + this._firstTokenInModeIndex) - this._firstTokenCharacterOffset;
+	public getTokenStartOffset(tokenIndex: number): number {
+		return this._actual.getTokenStartOffset(tokenIndex + this._firstTokenIndex) - this.firstCharOffset;
 	}
 
-	public getTokenEndIndex(tokenIndex:number): number {
-		return this._actual.getTokenEndIndex(tokenIndex + this._firstTokenInModeIndex) - this._firstTokenCharacterOffset;
-	}
-
-	public getTokenType(tokenIndex:number): string {
-		return this._actual.getTokenType(tokenIndex + this._firstTokenInModeIndex);
-	}
-
-	public getTokenText(tokenIndex:number): string {
-		return this._actual.getTokenText(tokenIndex + this._firstTokenInModeIndex);
+	public getStandardTokenType(tokenIndex: number): StandardTokenType {
+		return this._actual.getStandardTokenType(tokenIndex + this._firstTokenIndex);
 	}
 }
 
-const IGNORE_IN_TOKENS = /\b(comment|string|regex)\b/;
-export function ignoreBracketsInToken(tokenType:string): boolean {
-	return IGNORE_IN_TOKENS.test(tokenType);
+const enum IgnoreBracketsInTokens {
+	value = StandardTokenType.Comment | StandardTokenType.String | StandardTokenType.RegEx
 }
 
-// TODO@Martin: find a better home for this code:
-// TODO@Martin: modify suggestSupport to return a boolean if snippets should be presented or not
-//       and turn this into a real registry
-export class SnippetsRegistry {
-
-	private static _defaultSnippets: { [modeId: string]: modes.ISuggestion[] } = Object.create(null);
-	private static _snippets: { [modeId: string]: { [path: string]: modes.ISuggestion[] } } = Object.create(null);
-
-	public static registerDefaultSnippets(modeId: string, snippets: modes.ISuggestion[]): void {
-		this._defaultSnippets[modeId] = (this._defaultSnippets[modeId] || []).concat(snippets);
-	}
-
-	public static registerSnippets(modeId: string, path: string, snippets: modes.ISuggestion[]): void {
-		let snippetsByMode = this._snippets[modeId];
-		if (!snippetsByMode) {
-			this._snippets[modeId] = snippetsByMode = {};
-		}
-		snippetsByMode[path] = snippets;
-	}
-
-	public static getSnippets(model: IModel, position: IPosition): modes.ISuggestResult {
-		let word = model.getWordAtPosition(position);
-		let currentPrefix = word ? word.word.substring(0, position.column - word.startColumn) : '';
-		let result : modes.ISuggestResult = {
-			currentWord: currentPrefix,
-			suggestions: []
-		};
-
-		// to avoid that snippets are too prominent in the intellisense proposals:
-		// - force that the current prefix matches with the snippet prefix
-		// if there's no prfix, only show snippets at the beginning of the line, or after a whitespace
-		let filter = null;
-		if (currentPrefix.length === 0) {
-			if (position.column > 1) {
-				let previousCharacter = model.getValueInRange({ startLineNumber: position.lineNumber, startColumn: position.column - 1, endLineNumber: position.lineNumber, endColumn: position.column });
-				if (previousCharacter.trim().length !== 0) {
-					return result;
-				}
-			}
-		} else {
-			let lowerCasePrefix = currentPrefix.toLowerCase();
-			filter = (p: modes.ISuggestion) => {
-				return strings.startsWith(p.label.toLowerCase(), lowerCasePrefix);
-			};
-		}
-
-		let modeId = model.getMode().getId();
-		let snippets : modes.ISuggestion[]= [];
-		let snipppetsByMode = this._snippets[modeId];
-		if (snipppetsByMode) {
-			for (let s in snipppetsByMode) {
-				snippets = snippets.concat(snipppetsByMode[s]);
-			}
-		}
-		let defaultSnippets = this._defaultSnippets[modeId];
-		if (defaultSnippets) {
-			snippets = snippets.concat(defaultSnippets);
-		}
-		result.suggestions = filter ? snippets.filter(filter) : snippets;
-
-		// if (result.suggestions.length > 0) {
-		// 	if (word) {
-		// 		// Push also the current word as first suggestion, to avoid unexpected snippet acceptance on Enter.
-		// 		result.suggestions = result.suggestions.slice(0);
-		// 		result.suggestions.unshift({
-		// 			codeSnippet: word.word,
-		// 			label: word.word,
-		// 			type: 'text'
-		// 		});
-		// 	}
-		// 	result.incomplete = true;
-		// }
-
-		return result;
-
-	}
-
-
+export function ignoreBracketsInToken(standardTokenType: StandardTokenType): boolean {
+	return (standardTokenType & IgnoreBracketsInTokens.value) !== 0;
 }

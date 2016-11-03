@@ -5,33 +5,34 @@
 
 'use strict';
 
-import {clipboard} from 'electron';
+import { clipboard } from 'electron';
 import * as platform from 'vs/base/common/platform';
-import {ICodeEditor, IEditorMouseEvent} from 'vs/editor/browser/editorBrowser';
-import {Disposable} from 'vs/base/common/lifecycle';
-import {EndOfLinePreference, EventType, IEditorContribution, ICursorSelectionChangedEvent, IConfigurationChangedEvent} from 'vs/editor/common/editorCommon';
-import {EditorBrowserRegistry} from 'vs/editor/browser/editorBrowserExtensions';
-import {IKeybindingService} from 'vs/platform/keybinding/common/keybindingService';
-import {RunOnceScheduler} from 'vs/base/common/async';
-import {Range} from 'vs/editor/common/core/range';
+import { ICodeEditor, IEditorMouseEvent } from 'vs/editor/browser/editorBrowser';
+import { Disposable } from 'vs/base/common/lifecycle';
+import { EndOfLinePreference, IEditorContribution, ICursorSelectionChangedEvent, IConfigurationChangedEvent } from 'vs/editor/common/editorCommon';
+import { editorContribution } from 'vs/editor/browser/editorBrowserExtensions';
+import { IContextKeyService } from 'vs/platform/contextkey/common/contextkey';
+import { RunOnceScheduler } from 'vs/base/common/async';
+import { Range } from 'vs/editor/common/core/range';
 
-class SelectionClipboard extends Disposable implements IEditorContribution {
+@editorContribution
+export class SelectionClipboard extends Disposable implements IEditorContribution {
 
-	static ID = 'editor.contrib.selectionClipboard';
+	private static ID = 'editor.contrib.selectionClipboard';
 
-	constructor(editor:ICodeEditor, @IKeybindingService keybindingService:IKeybindingService) {
+	constructor(editor: ICodeEditor, @IContextKeyService contextKeyService: IContextKeyService) {
 		super();
 
 		if (platform.isLinux) {
-			var isEnabled = editor.getConfiguration().selectionClipboard;
+			var isEnabled = editor.getConfiguration().contribInfo.selectionClipboard;
 
-			this._register(editor.addListener2(EventType.ConfigurationChanged, (e:IConfigurationChangedEvent) => {
-				if (e.selectionClipboard) {
-					isEnabled = editor.getConfiguration().selectionClipboard;
+			this._register(editor.onDidChangeConfiguration((e: IConfigurationChangedEvent) => {
+				if (e.contribInfo) {
+					isEnabled = editor.getConfiguration().contribInfo.selectionClipboard;
 				}
 			}));
 
-			this._register(editor.addListener2(EventType.MouseDown, (e:IEditorMouseEvent) => {
+			this._register(editor.onMouseDown((e: IEditorMouseEvent) => {
 				if (!isEnabled) {
 					return;
 				}
@@ -81,7 +82,7 @@ class SelectionClipboard extends Disposable implements IEditorContribution {
 				clipboard.writeText(textToCopy, 'selection');
 			}, 100));
 
-			this._register(editor.addListener2(EventType.CursorSelectionChanged, (e:ICursorSelectionChangedEvent) => {
+			this._register(editor.onDidChangeCursorSelection((e: ICursorSelectionChangedEvent) => {
 				if (!isEnabled) {
 					return;
 				}
@@ -98,5 +99,3 @@ class SelectionClipboard extends Disposable implements IEditorContribution {
 		super.dispose();
 	}
 }
-
-EditorBrowserRegistry.registerEditorContribution(SelectionClipboard);

@@ -64,11 +64,13 @@ export default class TypeScriptSignatureHelpProvider implements SignatureHelpPro
 					}
 				});
 				signature.label += Previewer.plain(item.suffixDisplayParts);
+				signature.documentation = Previewer.plain(item.documentation);
 				result.signatures.push(signature);
 			});
 
 			return result;
 		}, (err: any) => {
+			this.client.error(`'signatureHelp' request failed with error.`, err);
 			return null;
 		});
 	}

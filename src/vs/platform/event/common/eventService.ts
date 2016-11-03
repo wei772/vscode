@@ -4,13 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {EventEmitter} from 'vs/base/common/eventEmitter';
-import {IEventService} from './event';
+import { EventEmitter } from 'vs/base/common/eventEmitter';
+import { IEventService } from './event';
 
 // --- implementation ------------------------------------------
 
 export class EventService extends EventEmitter implements IEventService {
-	public serviceId = IEventService;
+	public _serviceBrand: any;
 	constructor() {
 		super();
 	}

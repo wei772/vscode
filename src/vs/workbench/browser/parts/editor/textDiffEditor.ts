@@ -6,51 +6,51 @@
 'use strict';
 
 import 'vs/css!./media/textdiffeditor';
-import {TPromise} from 'vs/base/common/winjs.base';
+import { TPromise } from 'vs/base/common/winjs.base';
 import nls = require('vs/nls');
-import {Builder} from 'vs/base/browser/builder';
-import {Action, IAction} from 'vs/base/common/actions';
-import {onUnexpectedError} from 'vs/base/common/errors';
+import { Builder } from 'vs/base/browser/builder';
+import { Action, IAction } from 'vs/base/common/actions';
+import { onUnexpectedError } from 'vs/base/common/errors';
 import types = require('vs/base/common/types');
-import {Position} from 'vs/platform/editor/common/editor';
-import {IDiffEditor} from 'vs/editor/browser/editorBrowser';
-import {IDiffEditorOptions, IEditorOptions} from 'vs/editor/common/editorCommon';
-import {BaseEditor} from 'vs/workbench/browser/parts/editor/baseEditor';
-import {BaseTextEditor} from 'vs/workbench/browser/parts/editor/textEditor';
-import {TextEditorOptions, TextDiffEditorOptions, EditorModel, EditorInput, EditorOptions} from 'vs/workbench/common/editor';
-import {StringEditorInput} from 'vs/workbench/common/editor/stringEditorInput';
-import {ResourceEditorInput} from 'vs/workbench/common/editor/resourceEditorInput';
-import {DiffEditorInput} from 'vs/workbench/common/editor/diffEditorInput';
-import {DiffNavigator} from 'vs/editor/contrib/diffNavigator/common/diffNavigator';
-import {DiffEditorWidget} from 'vs/editor/browser/widget/diffEditorWidget';
-import {TextDiffEditorModel} from 'vs/workbench/common/editor/textDiffEditorModel';
-import {DelegatingWorkbenchEditorService} from 'vs/workbench/services/editor/browser/editorService';
-import {IFileOperationResult, FileOperationResult} from 'vs/platform/files/common/files';
-import {ITelemetryService} from 'vs/platform/telemetry/common/telemetry';
-import {IWorkspaceContextService} from 'vs/workbench/services/workspace/common/contextService';
-import {IStorageService} from 'vs/platform/storage/common/storage';
-import {IConfigurationService} from 'vs/platform/configuration/common/configuration';
-import {IEventService} from 'vs/platform/event/common/event';
-import {IInstantiationService} from 'vs/platform/instantiation/common/instantiation';
-import {ServiceCollection} from 'vs/platform/instantiation/common/serviceCollection';
-import {IMessageService} from 'vs/platform/message/common/message';
-import {IWorkbenchEditorService} from 'vs/workbench/services/editor/common/editorService';
-import {IModeService} from 'vs/editor/common/services/modeService';
-import {IKeybindingService, IKeybindingContextKey} from 'vs/platform/keybinding/common/keybindingService';
-import {IThemeService} from 'vs/workbench/services/themes/common/themeService';
+import { Position } from 'vs/platform/editor/common/editor';
+import { IDiffEditor } from 'vs/editor/browser/editorBrowser';
+import { IDiffEditorOptions, IEditorOptions } from 'vs/editor/common/editorCommon';
+import { BaseTextEditor } from 'vs/workbench/browser/parts/editor/textEditor';
+import { TextEditorOptions, TextDiffEditorOptions, EditorModel, EditorInput, EditorOptions, TEXT_DIFF_EDITOR_ID } from 'vs/workbench/common/editor';
+import { StringEditorInput } from 'vs/workbench/common/editor/stringEditorInput';
+import { ResourceEditorInput } from 'vs/workbench/common/editor/resourceEditorInput';
+import { DiffEditorInput } from 'vs/workbench/common/editor/diffEditorInput';
+import { DiffNavigator } from 'vs/editor/contrib/diffNavigator/common/diffNavigator';
+import { DiffEditorWidget } from 'vs/editor/browser/widget/diffEditorWidget';
+import { TextDiffEditorModel } from 'vs/workbench/common/editor/textDiffEditorModel';
+import { DelegatingWorkbenchEditorService } from 'vs/workbench/services/editor/browser/editorService';
+import { IFileOperationResult, FileOperationResult } from 'vs/platform/files/common/files';
+import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
+import { IWorkspaceContextService } from 'vs/platform/workspace/common/workspace';
+import { IStorageService } from 'vs/platform/storage/common/storage';
+import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
+import { IEventService } from 'vs/platform/event/common/event';
+import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
+import { ServiceCollection } from 'vs/platform/instantiation/common/serviceCollection';
+import { IMessageService } from 'vs/platform/message/common/message';
+import { IWorkbenchEditorService } from 'vs/workbench/services/editor/common/editorService';
+import { RawContextKey, IContextKeyService, IContextKey } from 'vs/platform/contextkey/common/contextkey';
+import { IThemeService } from 'vs/workbench/services/themes/common/themeService';
+
+export const TextCompareEditorVisible = new RawContextKey<boolean>('textCompareEditorVisible', false);
 
 /**
- * The text editor that leverages the monaco diff text editor for the editing experience.
+ * The text editor that leverages the diff text editor for the editing experience.
  */
 export class TextDiffEditor extends BaseTextEditor {
 
-	public static ID = 'workbench.editors.textDiffEditor';
+	public static ID = TEXT_DIFF_EDITOR_ID;
 
 	private diffNavigator: DiffNavigator;
 	private nextDiffAction: NavigateAction;
 	private previousDiffAction: NavigateAction;
 
-	private textDiffEditorVisible: IKeybindingContextKey<boolean>;
+	private textDiffEditorVisible: IContextKey<boolean>;
 
 	constructor(
 		@ITelemetryService telemetryService: ITelemetryService,
@@ -61,13 +61,12 @@ export class TextDiffEditor extends BaseTextEditor {
 		@IConfigurationService configurationService: IConfigurationService,
 		@IEventService eventService: IEventService,
 		@IWorkbenchEditorService editorService: IWorkbenchEditorService,
-		@IModeService modeService: IModeService,
-		@IKeybindingService keybindingService: IKeybindingService,
+		@IContextKeyService contextKeyService: IContextKeyService,
 		@IThemeService themeService: IThemeService
 	) {
-		super(TextDiffEditor.ID, telemetryService, instantiationService, contextService, storageService, messageService, configurationService, eventService, editorService, modeService, themeService);
+		super(TextDiffEditor.ID, telemetryService, instantiationService, contextService, storageService, messageService, configurationService, eventService, editorService, themeService);
 
-		this.textDiffEditorVisible = keybindingService.createKey<boolean>('textCompareEditorVisible', false);
+		this.textDiffEditorVisible = TextCompareEditorVisible.bindTo(contextKeyService);
 	}
 
 	public getTitle(): string {
@@ -79,56 +78,57 @@ export class TextDiffEditor extends BaseTextEditor {
 	}
 
 	public createEditorControl(parent: Builder): IDiffEditor {
+
+		// Actions
 		this.nextDiffAction = new NavigateAction(this, true);
 		this.previousDiffAction = new NavigateAction(this, false);
 
-		let delegatingService = this.instantiationService.createInstance(DelegatingWorkbenchEditorService, this, (editor: BaseEditor, input: EditorInput, options?: EditorOptions, arg4?: any) => {
+		// Support navigation within the diff editor by overriding the editor service within
+		const delegatingEditorService = this.instantiationService.createInstance(DelegatingWorkbenchEditorService, (input: EditorInput, options?: EditorOptions, arg3?: any) => {
 
 			// Check if arg4 is a position argument that differs from this editors position
-			if (types.isUndefinedOrNull(arg4) || arg4 === false || arg4 === this.position) {
-				let activeDiffInput = <DiffEditorInput>this.getInput();
+			if (types.isUndefinedOrNull(arg3) || arg3 === false || arg3 === this.position) {
+				const activeDiffInput = <DiffEditorInput>this.getInput();
 				if (input && options && activeDiffInput) {
 
 					// Input matches modified side of the diff editor: perform the action on modified side
-					if (input.matches(activeDiffInput.getModifiedInput())) {
-						return this.setInput(this.getInput(), options).then(() => {
-							return true;
-						});
+					if (input.matches(activeDiffInput.modifiedInput)) {
+						return this.setInput(this.getInput(), options).then(() => this);
 					}
 
 					// Input matches original side of the diff editor: perform the action on original side
-					else if (input.matches(activeDiffInput.getOriginalInput())) {
-						let originalEditor = this.getControl().getOriginalEditor();
+					else if (input.matches(activeDiffInput.originalInput)) {
+						const originalEditor = this.getControl().getOriginalEditor();
 						if (options instanceof TextEditorOptions) {
 							(<TextEditorOptions>options).apply(originalEditor);
 
-							return TPromise.as<boolean>(true);
+							return TPromise.as(this);
 						}
 					}
 				}
 			}
 
-			return TPromise.as<boolean>(false);
+			return TPromise.as(null);
 		});
 
 		// Create a special child of instantiator that will delegate all calls to openEditor() to the same diff editor if the input matches with the modified one
-		let diffEditorInstantiator = this.instantiationService.createChild(new ServiceCollection([IWorkbenchEditorService, delegatingService]));
+		const diffEditorInstantiator = this.instantiationService.createChild(new ServiceCollection([IWorkbenchEditorService, delegatingEditorService]));
 
 		return diffEditorInstantiator.createInstance(DiffEditorWidget, parent.getHTMLElement(), this.getCodeEditorOptions());
 	}
 
 	public setInput(input: EditorInput, options: EditorOptions): TPromise<void> {
-		let oldInput = this.getInput();
+		const oldInput = this.getInput();
 		super.setInput(input, options);
 
 		// Detect options
-		let forceOpen = options && options.forceOpen;
+		const forceOpen = options && options.forceOpen;
 
 		// Same Input
 		if (!forceOpen && input.matches(oldInput)) {
 
 			// TextOptions (avoiding instanceof here for a reason, do not change!)
-			let textOptions = <TextEditorOptions>options;
+			const textOptions = <TextEditorOptions>options;
 			if (textOptions && types.isFunction(textOptions.apply)) {
 				textOptions.apply(<IDiffEditor>this.getControl());
 			}
@@ -155,13 +155,13 @@ export class TextDiffEditor extends BaseTextEditor {
 			}
 
 			// Editor
-			let diffEditor = <IDiffEditor>this.getControl();
+			const diffEditor = <IDiffEditor>this.getControl();
 			diffEditor.setModel((<TextDiffEditorModel>resolvedModel).textDiffEditorModel);
 
 			// Respect text diff editor options
 			let autoRevealFirstChange = true;
 			if (options instanceof TextDiffEditorOptions) {
-				let textDiffOptions = (<TextDiffEditorOptions>options);
+				const textDiffOptions = (<TextDiffEditorOptions>options);
 				autoRevealFirstChange = !types.isUndefinedOrNull(textDiffOptions.autoRevealFirstChange) ? textDiffOptions.autoRevealFirstChange : autoRevealFirstChange;
 			}
 
@@ -169,7 +169,7 @@ export class TextDiffEditor extends BaseTextEditor {
 			this.diffNavigator = new DiffNavigator(diffEditor, {
 				alwaysRevealFirst: autoRevealFirstChange
 			});
-			this.diffNavigator.addListener(DiffNavigator.Events.UPDATED, () => {
+			this.diffNavigator.addListener2(DiffNavigator.Events.UPDATED, () => {
 				this.nextDiffAction.updateEnablement();
 				this.previousDiffAction.updateEnablement();
 			});
@@ -195,10 +195,10 @@ export class TextDiffEditor extends BaseTextEditor {
 
 	private openAsBinary(input: EditorInput, options: EditorOptions): boolean {
 		if (input instanceof DiffEditorInput) {
-			let originalInput = input.originalInput;
-			let modifiedInput = input.modifiedInput;
+			const originalInput = input.originalInput;
+			const modifiedInput = input.modifiedInput;
 
-			let binaryDiffInput = new DiffEditorInput(input.getName(), input.getDescription(), originalInput, modifiedInput, true);
+			const binaryDiffInput = new DiffEditorInput(input.getName(), input.getDescription(), originalInput, modifiedInput, true);
 
 			this.editorService.openEditor(binaryDiffInput, options, this.position).done(null, onUnexpectedError);
 
@@ -209,17 +209,17 @@ export class TextDiffEditor extends BaseTextEditor {
 	}
 
 	protected getCodeEditorOptions(): IEditorOptions {
-		let options: IDiffEditorOptions = super.getCodeEditorOptions();
+		const options: IDiffEditorOptions = super.getCodeEditorOptions();
 
-		let input = this.input;
-		if (input && types.isFunction((<DiffEditorInput>input).getModifiedInput)) {
-			let modifiedInput = (<DiffEditorInput>input).getModifiedInput();
-			let readOnly = modifiedInput instanceof StringEditorInput || modifiedInput instanceof ResourceEditorInput;
+		const input = this.input;
+		if (input instanceof DiffEditorInput) {
+			const modifiedInput = input.modifiedInput;
+			const readOnly = modifiedInput instanceof StringEditorInput || modifiedInput instanceof ResourceEditorInput;
 
 			options.readOnly = readOnly;
 
 			let ariaLabel: string;
-			let inputName = input && input.getName();
+			const inputName = input && input.getName();
 			if (readOnly) {
 				ariaLabel = inputName ? nls.localize('readonlyEditorWithInputAriaLabel', "{0}. Readonly text compare editor.", inputName) : nls.localize('readonlyEditorAriaLabel', "Readonly text compare editor.");
 			} else {
@@ -236,7 +236,7 @@ export class TextDiffEditor extends BaseTextEditor {
 	private isFileBinaryError(error: Error): boolean;
 	private isFileBinaryError(error: any): boolean {
 		if (types.isArray(error)) {
-			let errors = <Error[]>error;
+			const errors = <Error[]>error;
 			return errors.some((e) => this.isFileBinaryError(e));
 		}
 
@@ -257,10 +257,10 @@ export class TextDiffEditor extends BaseTextEditor {
 		super.clearInput();
 	}
 
-	public setVisible(visible: boolean, position: Position): TPromise<void> {
+	public setEditorVisible(visible: boolean, position: Position): void {
 		this.textDiffEditorVisible.set(visible);
 
-		return super.setVisible(visible, position);
+		super.setEditorVisible(visible, position);
 	}
 
 	public getDiffNavigator(): DiffNavigator {
@@ -275,16 +275,16 @@ export class TextDiffEditor extends BaseTextEditor {
 	}
 
 	public getSecondaryActions(): IAction[] {
-		let actions = super.getSecondaryActions();
+		const actions = super.getSecondaryActions();
 
 		const control = this.getControl();
 
 		let inlineModeActive = control && !control.renderSideBySide;
-		let inlineLabel = nls.localize('inlineDiffLabel', "Switch to Inline View");
-		let sideBySideLabel = nls.localize('sideBySideDiffLabel', "Switch to Side by Side View");
+		const inlineLabel = nls.localize('inlineDiffLabel', "Switch to Inline View");
+		const sideBySideLabel = nls.localize('sideBySideDiffLabel', "Switch to Side by Side View");
 
 		// Action to toggle editor mode from inline to side by side
-		let toggleEditorModeAction = new Action('toggle.diff.editorMode', inlineModeActive ? sideBySideLabel : inlineLabel, null, true, () => {
+		const toggleEditorModeAction = new Action('toggle.diff.editorMode', inlineModeActive ? sideBySideLabel : inlineLabel, null, true, () => {
 			this.getControl().updateOptions(<IDiffEditorOptions>{
 				renderSideBySide: inlineModeActive
 			});

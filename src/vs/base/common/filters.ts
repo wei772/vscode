@@ -5,6 +5,8 @@
 'use strict';
 
 import strings = require('vs/base/common/strings');
+import { BoundedLinkedMap } from 'vs/base/common/map';
+import { CharCode } from 'vs/base/common/charCode';
 
 export interface IFilter {
 	// Returns null if word doesn't match.
@@ -113,19 +115,24 @@ function _matchesSubString(word: string, wordToMatchAgainst: string, i: number, 
 // CamelCase
 
 function isLower(code: number): boolean {
-	return 97 <= code && code <= 122;
+	return CharCode.a <= code && code <= CharCode.z;
 }
 
 function isUpper(code: number): boolean {
-	return 65 <= code && code <= 90;
+	return CharCode.A <= code && code <= CharCode.Z;
 }
 
 function isNumber(code: number): boolean {
-	return 48 <= code && code <= 57;
+	return CharCode.Digit0 <= code && code <= CharCode.Digit9;
 }
 
 function isWhitespace(code: number): boolean {
-	return [32, 9, 10, 13].indexOf(code) > -1;
+	return (
+		code === CharCode.Space
+		|| code === CharCode.Tab
+		|| code === CharCode.LineFeed
+		|| code === CharCode.CarriageReturn
+	);
 }
 
 function isAlphanumeric(code: number): boolean {
@@ -172,13 +179,16 @@ function _matchesCamelCase(word: string, camelCaseWord: string, i: number, j: nu
 	}
 }
 
+interface ICamelCaseAnalysis {
+	upperPercent: number;
+	lowerPercent: number;
+	alphaPercent: number;
+	numericPercent: number;
+}
+
 // Heuristic to avoid computing camel case matcher for words that don't
 // look like camelCaseWords.
-function isCamelCaseWord(word: string): boolean {
-	if (word.length > 60) {
-		return false;
-	}
-
+function analyzeCamelCaseWord(word: string): ICamelCaseAnalysis {
 	let upper = 0, lower = 0, alpha = 0, numeric = 0, code = 0;
 
 	for (let i = 0; i < word.length; i++) {
@@ -195,6 +205,16 @@ function isCamelCaseWord(word: string): boolean {
 	let alphaPercent = alpha / word.length;
 	let numericPercent = numeric / word.length;
 
+	return { upperPercent, lowerPercent, alphaPercent, numericPercent };
+}
+
+function isUpperCaseWord(analysis: ICamelCaseAnalysis): boolean {
+	const { upperPercent, lowerPercent, alphaPercent, numericPercent } = analysis;
+	return lowerPercent === 0 && upperPercent > 0.6;
+}
+
+function isCamelCaseWord(analysis: ICamelCaseAnalysis): boolean {
+	const { upperPercent, lowerPercent, alphaPercent, numericPercent } = analysis;
 	return lowerPercent > 0.2 && upperPercent < 0.8 && alphaPercent > 0.6 && numericPercent < 0.2;
 }
 
@@ -227,8 +247,18 @@ export function matchesCamelCase(word: string, camelCaseWord: string): IMatch[] 
 		return null;
 	}
 
-	if (!isCamelCaseWord(camelCaseWord)) {
+	if (camelCaseWord.length > 60) {
 		return null;
+	}
+
+	const analysis = analyzeCamelCaseWord(camelCaseWord);
+
+	if (!isCamelCaseWord(analysis)) {
+		if (!isUpperCaseWord(analysis)) {
+			return null;
+		}
+
+		camelCaseWord = camelCaseWord.toLowerCase();
 	}
 
 	let result: IMatch[] = null;
@@ -298,7 +328,7 @@ export enum SubstringMatching {
 
 export const fuzzyContiguousFilter = or(matchesPrefix, matchesCamelCase, matchesContiguousSubString);
 const fuzzySeparateFilter = or(matchesPrefix, matchesCamelCase, matchesSubString);
-const fuzzyRegExpCache: { [key: string]: RegExp; } = {};
+const fuzzyRegExpCache = new BoundedLinkedMap<RegExp>(10000); // bounded to 10000 elements
 
 export function matchesFuzzy(word: string, wordToMatchAgainst: string, enableSeparateSubstringMatching = false): IMatch[] {
 	if (typeof word !== 'string' || typeof wordToMatchAgainst !== 'string') {
@@ -306,10 +336,10 @@ export function matchesFuzzy(word: string, wordToMatchAgainst: string, enableSep
 	}
 
 	// Form RegExp for wildcard matches
-	let regexp = fuzzyRegExpCache[word];
+	let regexp = fuzzyRegExpCache.get(word);
 	if (!regexp) {
 		regexp = new RegExp(strings.convertSimple2RegExpPattern(word), 'i');
-		fuzzyRegExpCache[word] = regexp;
+		fuzzyRegExpCache.set(word, regexp);
 	}
 
 	// RegExp Filter

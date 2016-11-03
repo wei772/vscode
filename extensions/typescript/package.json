@@ -6,16 +6,20 @@
 	"author": "Microsoft Corporation",
 	"license": "MIT",
 	"publisher": "vscode",
-	"aiKey":"AIF-d9b70cd4-b9f9-4d70-929b-a071c400b217",
+	"aiKey": "AIF-d9b70cd4-b9f9-4d70-929b-a071c400b217",
 	"engines": {
 		"vscode": "*"
 	},
 	"dependencies": {
+		"semver": "4.3.6",
 		"vscode-extension-telemetry": "^0.0.5",
-		"vscode-nls": "^1.0.4"
+		"vscode-nls": "^2.0.1",
+		"typescript": "2.0.6"
 	},
 	"scripts": {
-		"vscode:prepublish": "node ../../node_modules/gulp/bin/gulp.js --gulpfile ../../build/gulpfile.extensions.js compile-extension:typescript ./tsconfig.json"
+		"postinstall": "node ./bin/postinstall",
+		"vscode:prepublish": "node ../../node_modules/gulp/bin/gulp.js --gulpfile ../../build/gulpfile.extensions.js compile-extension:typescript ./tsconfig.json",
+		"update-grammars": "node ./build/update-grammars.js"
 	},
 	"activationEvents": [
 		"onLanguage:javascript",
@@ -37,7 +41,8 @@
 				],
 				"extensions": [
 					".ts"
-				]
+				],
+				"configuration": "./language-configuration.json"
 			},
 			{
 				"id": "typescriptreact",
@@ -47,29 +52,59 @@
 				],
 				"extensions": [
 					".tsx"
-				]
+				],
+				"configuration": "./language-configuration.json"
 			}
 		],
 		"grammars": [
 			{
 				"language": "typescript",
 				"scopeName": "source.ts",
-				"path": "./syntaxes/TypeScript.tmLanguage"
+				"path": "./syntaxes/TypeScript.tmLanguage.json"
 			},
 			{
 				"language": "typescriptreact",
 				"scopeName": "source.tsx",
-				"path": "./syntaxes/TypeScriptReact.tmLanguage"
+				"path": "./syntaxes/TypeScriptReact.tmLanguage.json"
 			}
 		],
 		"configuration": {
 			"type": "object",
 			"title": "%configuration.typescript%",
+			"order": 20,
 			"properties": {
 				"typescript.tsdk": {
-					"type": ["string", "null"],
+					"type": [
+						"string",
+						"null"
+					],
 					"default": null,
 					"description": "%typescript.tsdk.desc%"
+				},
+				"typescript.disableAutomaticTypeAcquisition": {
+					"type": "boolean",
+					"default": false,
+					"description": "%typescript.disableAutomaticTypeAcquisition%"
+				},
+				"typescript.check.workspaceVersion": {
+					"type": "boolean",
+					"default": true,
+					"description": "%typescript.check.workspaceVersion%"
+				},
+				"typescript.check.tscVersion": {
+					"type": "boolean",
+					"default": true,
+					"description": "%typescript.check.tscVersion%"
+				},
+				"typescript.tsserver.trace": {
+					"type": "string",
+					"enum": [
+						"off",
+						"messages",
+						"verbose"
+					],
+					"default": "off",
+					"description": "%typescript.tsserver.trace%"
 				},
 				"typescript.useCodeSnippetsOnMethodSuggest": {
 					"type": "boolean",
@@ -81,11 +116,10 @@
 					"default": true,
 					"description": "%typescript.validate.enable%"
 				},
-				"typescript.tsserver.trace": {
-					"type": "string",
-					"enum": ["off", "messages", "verbose"],
-					"default": "off",
-					"description": "%typescript.tsserver.trace%"
+				"typescript.format.enable": {
+					"type": "boolean",
+					"default": true,
+					"description": "%typescript.format.enable%"
 				},
 				"typescript.format.insertSpaceAfterCommaDelimiter": {
 					"type": "boolean",
@@ -122,6 +156,16 @@
 					"default": false,
 					"description": "%format.insertSpaceAfterOpeningAndBeforeClosingNonemptyBrackets%"
 				},
+				"typescript.format.insertSpaceAfterOpeningAndBeforeClosingTemplateStringBraces": {
+					"type": "boolean",
+					"default": false,
+					"description": "%format.insertSpaceAfterOpeningAndBeforeClosingTemplateStringBraces%"
+				},
+				"typescript.format.insertSpaceAfterOpeningAndBeforeClosingJsxExpressionBraces": {
+					"type": "boolean",
+					"default": false,
+					"description": "%format.insertSpaceAfterOpeningAndBeforeClosingJsxExpressionBraces%"
+				},
 				"typescript.format.placeOpenBraceOnNewLineForFunctions": {
 					"type": "boolean",
 					"default": false,
@@ -136,6 +180,11 @@
 					"type": "boolean",
 					"default": true,
 					"description": "%javascript.validate.enable%"
+				},
+				"javascript.format.enable": {
+					"type": "boolean",
+					"default": true,
+					"description": "%javascript.format.enable%"
 				},
 				"javascript.format.insertSpaceAfterCommaDelimiter": {
 					"type": "boolean",
@@ -172,6 +221,16 @@
 					"default": false,
 					"description": "%format.insertSpaceAfterOpeningAndBeforeClosingNonemptyBrackets%"
 				},
+				"javascript.format.insertSpaceAfterOpeningAndBeforeClosingTemplateStringBraces": {
+					"type": "boolean",
+					"default": false,
+					"description": "%format.insertSpaceAfterOpeningAndBeforeClosingTemplateStringBraces%"
+				},
+				"javascript.format.insertSpaceAfterOpeningAndBeforeClosingJsxExpressionBraces": {
+					"type": "boolean",
+					"default": false,
+					"description": "%format.insertSpaceAfterOpeningAndBeforeClosingJsxExpressionBraces%"
+				},
 				"javascript.format.placeOpenBraceOnNewLineForFunctions": {
 					"type": "boolean",
 					"default": false,
@@ -199,22 +258,12 @@
 				"title": "%javascript.reloadProjects.title%"
 			}
 		],
-		"debuggers": [
+		"breakpoints": [
 			{
-				"type": "node",
-				"enableBreakpointsFor": {
-					"languageIds": [
-						"typescript", "typescriptreact"
-					]
-				}
+				"language": "typescript"
 			},
 			{
-				"type": "extensionHost",
-				"enableBreakpointsFor": {
-					"languageIds": [
-						"typescript"
-					]
-				}
+				"language": "typescriptreact"
 			}
 		],
 		"snippets": [

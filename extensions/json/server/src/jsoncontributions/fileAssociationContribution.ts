@@ -4,10 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {MarkedString, CompletionItemKind, CompletionItem} from 'vscode-languageserver';
+import { MarkedString, CompletionItemKind, CompletionItem } from 'vscode-languageserver';
 import Strings = require('../utils/strings');
-import {IJSONWorkerContribution, ISuggestionsCollector} from '../jsonContributions';
-import {JSONLocation} from '../jsonLocation';
+import { JSONWorkerContribution, JSONPath, CompletionsCollector } from 'vscode-json-languageservice';
 
 import * as nls from 'vscode-nls';
 const localize = nls.loadMessageBundle();
@@ -17,13 +16,13 @@ let globProperties: CompletionItem[] = [
 	{ kind: CompletionItemKind.Value, label: localize('assocLabelPath', "Files with Path"), insertText: '"/{{path to file}}/*.{{extension}}": "{{language}}"', documentation: localize('assocDescriptionPath', "Map all files matching the absolute path glob pattern in their path to the language with the given identifier.") }
 ];
 
-export class FileAssociationContribution implements IJSONWorkerContribution {
-	private languageIds:string[];
+export class FileAssociationContribution implements JSONWorkerContribution {
+	private languageIds: string[];
 
 	constructor() {
 	}
 
-	public setLanguageIds(ids:string[]): void {
+	public setLanguageIds(ids: string[]): void {
 		this.languageIds = ids;
 	}
 
@@ -31,25 +30,29 @@ export class FileAssociationContribution implements IJSONWorkerContribution {
 		return Strings.endsWith(resource, '/settings.json');
 	}
 
-	public collectDefaultSuggestions(resource: string, result: ISuggestionsCollector): Thenable<any> {
+	public collectDefaultCompletions(resource: string, result: CompletionsCollector): Thenable<any> {
 		return null;
 	}
 
-	public collectPropertySuggestions(resource: string, location: JSONLocation, currentWord: string, addValue: boolean, isLast: boolean, result: ISuggestionsCollector): Thenable<any> {
-		if (this.isSettingsFile(resource) && location.matches(['files.associations'])) {
-			globProperties.forEach((e) => result.add(e));
+	public collectPropertyCompletions(resource: string, location: JSONPath, currentWord: string, addValue: boolean, isLast: boolean, result: CompletionsCollector): Thenable<any> {
+		if (this.isSettingsFile(resource) && location.length === 1 && location[0] === 'files.associations') {
+			globProperties.forEach(e => {
+				e.filterText = e.insertText;
+				result.add(e);
+			});
 		}
 
 		return null;
 	}
 
-	public collectValueSuggestions(resource: string, location: JSONLocation, currentKey: string, result: ISuggestionsCollector): Thenable<any> {
-		if (this.isSettingsFile(resource) && location.matches(['files.associations'])) {
+	public collectValueCompletions(resource: string, location: JSONPath, currentKey: string, result: CompletionsCollector): Thenable<any> {
+		if (this.isSettingsFile(resource) && location.length === 1 && location[0] === 'files.associations') {
 			this.languageIds.forEach(l => {
 				result.add({
 					kind: CompletionItemKind.Value,
 					label: l,
-					insertText: '"{{' + l + '}}"',
+					insertText: JSON.stringify('{{' + l + '}}'),
+					filterText: JSON.stringify(l)
 				});
 			});
 		}
@@ -57,7 +60,7 @@ export class FileAssociationContribution implements IJSONWorkerContribution {
 		return null;
 	}
 
-	public getInfoContribution(resource: string, location: JSONLocation): Thenable<MarkedString[]> {
+	public getInfoContribution(resource: string, location: JSONPath): Thenable<MarkedString[]> {
 		return null;
 	}
 }

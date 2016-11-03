@@ -33,7 +33,7 @@ suite('Arrays', () => {
 		assert.equal(array[idx], 1);
 	});
 
-	test('binarySearch', function() {
+	test('binarySearch', function () {
 		function compare(a: number, b: number): number {
 			return a - b;
 		}
@@ -49,7 +49,7 @@ suite('Arrays', () => {
 
 	});
 
-	test('distinct', function() {
+	test('distinct', function () {
 		function compare(a: string): string {
 			return a;
 		}
@@ -59,6 +59,22 @@ suite('Arrays', () => {
 		assert.deepEqual(arrays.distinct(['32', 'constructor', '5', '1'], compare), ['32', 'constructor', '5', '1']);
 		assert.deepEqual(arrays.distinct(['32', 'constructor', 'proto', 'proto', 'constructor'], compare), ['32', 'constructor', 'proto']);
 		assert.deepEqual(arrays.distinct(['32', '4', '5', '32', '4', '5', '32', '4', '5', '5'], compare), ['32', '4', '5']);
+	});
+
+	test('top', function () {
+		const cmp = (a, b) => {
+			assert.strictEqual(typeof a, 'number', 'typeof a');
+			assert.strictEqual(typeof b, 'number', 'typeof b');
+			return a - b;
+		};
+
+		assert.deepEqual(arrays.top([], cmp, 1), []);
+		assert.deepEqual(arrays.top([1], cmp, 0), []);
+		assert.deepEqual(arrays.top([1, 2], cmp, 1), [1]);
+		assert.deepEqual(arrays.top([2, 1], cmp, 1), [1]);
+		assert.deepEqual(arrays.top([1, 3, 2], cmp, 2), [1, 2]);
+		assert.deepEqual(arrays.top([3, 2, 1], cmp, 3), [1, 2, 3]);
+		assert.deepEqual(arrays.top([4, 6, 2, 7, 8, 3, 5, 1], cmp, 3), [1, 2, 3]);
 	});
 });
 

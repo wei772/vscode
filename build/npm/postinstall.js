@@ -10,9 +10,14 @@ const extensions = [
 	'vscode-api-tests',
 	'vscode-colorize-tests',
 	'json',
+	'configuration-editing',
+	'extension-editing',
+	'markdown',
 	'typescript',
 	'php',
-	'javascript'
+	'javascript',
+	'css',
+	'html'
 ];
 
 extensions.forEach(extension => {

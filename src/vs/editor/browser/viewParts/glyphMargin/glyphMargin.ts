@@ -7,17 +7,18 @@
 
 import 'vs/css!./glyphMargin';
 import * as editorCommon from 'vs/editor/common/editorCommon';
-import {DynamicViewOverlay} from 'vs/editor/browser/view/dynamicViewOverlay';
-import {IRenderingContext, IViewContext} from 'vs/editor/browser/editorBrowser';
+import { DynamicViewOverlay } from 'vs/editor/browser/view/dynamicViewOverlay';
+import { ViewContext } from 'vs/editor/common/view/viewContext';
+import { IRenderingContext } from 'vs/editor/common/view/renderingContext';
 
 export class DecorationToRender {
-	public _decorationToRenderTrait:void;
+	_decorationToRenderBrand: void;
 
-	public startLineNumber:number;
-	public endLineNumber:number;
-	public className:string;
+	public startLineNumber: number;
+	public endLineNumber: number;
+	public className: string;
 
-	constructor(startLineNumber:number, endLineNumber:number, className:string) {
+	constructor(startLineNumber: number, endLineNumber: number, className: string) {
 		this.startLineNumber = +startLineNumber;
 		this.endLineNumber = +endLineNumber;
 		this.className = String(className);
@@ -26,12 +27,12 @@ export class DecorationToRender {
 
 export abstract class DedupOverlay extends DynamicViewOverlay {
 
-	protected _render(visibleStartLineNumber:number, visibleEndLineNumber:number, decorations:DecorationToRender[]): string[] {
+	protected _render(visibleStartLineNumber: number, visibleEndLineNumber: number, decorations: DecorationToRender[]): string[][] {
 
-		let output: string[] = [];
+		let output: string[][] = [];
 		for (let lineNumber = visibleStartLineNumber; lineNumber <= visibleEndLineNumber; lineNumber++) {
 			let lineIndex = lineNumber - visibleStartLineNumber;
-			output[lineIndex] = '';
+			output[lineIndex] = [];
 		}
 
 		if (decorations.length === 0) {
@@ -48,7 +49,7 @@ export abstract class DedupOverlay extends DynamicViewOverlay {
 			return (a.className < b.className ? -1 : 1);
 		});
 
-		let prevClassName:string = null;
+		let prevClassName: string = null;
 		let prevEndLineIndex = 0;
 		for (let i = 0, len = decorations.length; i < len; i++) {
 			let d = decorations[i];
@@ -65,7 +66,7 @@ export abstract class DedupOverlay extends DynamicViewOverlay {
 			}
 
 			for (let i = startLineIndex; i <= prevEndLineIndex; i++) {
-				output[i] += ' ' + prevClassName;
+				output[i].push(prevClassName);
 			}
 		}
 
@@ -75,18 +76,18 @@ export abstract class DedupOverlay extends DynamicViewOverlay {
 
 export class GlyphMarginOverlay extends DedupOverlay {
 
-	private _context:IViewContext;
-	private _lineHeight:number;
-	private _glyphMargin:boolean;
-	private _glyphMarginLeft:number;
-	private _glyphMarginWidth:number;
+	private _context: ViewContext;
+	private _lineHeight: number;
+	private _glyphMargin: boolean;
+	private _glyphMarginLeft: number;
+	private _glyphMarginWidth: number;
 	private _renderResult: string[];
 
-	constructor(context:IViewContext) {
+	constructor(context: ViewContext) {
 		super();
 		this._context = context;
 		this._lineHeight = this._context.configuration.editor.lineHeight;
-		this._glyphMargin = this._context.configuration.editor.glyphMargin;
+		this._glyphMargin = this._context.configuration.editor.viewInfo.glyphMargin;
 		this._glyphMarginLeft = 0;
 		this._glyphMarginWidth = 0;
 		this._renderResult = null;
@@ -104,59 +105,53 @@ export class GlyphMarginOverlay extends DedupOverlay {
 	public onModelFlushed(): boolean {
 		return true;
 	}
-	public onModelDecorationsChanged(e:editorCommon.IViewDecorationsChangedEvent): boolean {
+	public onModelDecorationsChanged(e: editorCommon.IViewDecorationsChangedEvent): boolean {
 		return true;
 	}
-	public onModelLinesDeleted(e:editorCommon.IViewLinesDeletedEvent): boolean {
+	public onModelLinesDeleted(e: editorCommon.IViewLinesDeletedEvent): boolean {
 		return true;
 	}
-	public onModelLineChanged(e:editorCommon.IViewLineChangedEvent): boolean {
+	public onModelLineChanged(e: editorCommon.IViewLineChangedEvent): boolean {
 		return true;
 	}
-	public onModelLinesInserted(e:editorCommon.IViewLinesInsertedEvent): boolean {
+	public onModelLinesInserted(e: editorCommon.IViewLinesInsertedEvent): boolean {
 		return true;
 	}
-	public onCursorPositionChanged(e:editorCommon.IViewCursorPositionChangedEvent): boolean {
+	public onCursorPositionChanged(e: editorCommon.IViewCursorPositionChangedEvent): boolean {
 		return false;
 	}
-	public onCursorSelectionChanged(e:editorCommon.IViewCursorSelectionChangedEvent): boolean {
+	public onCursorSelectionChanged(e: editorCommon.IViewCursorSelectionChangedEvent): boolean {
 		return false;
 	}
-	public onCursorRevealRange(e:editorCommon.IViewRevealRangeEvent): boolean {
+	public onCursorRevealRange(e: editorCommon.IViewRevealRangeEvent): boolean {
 		return false;
 	}
-	public onConfigurationChanged(e:editorCommon.IConfigurationChangedEvent): boolean {
+	public onConfigurationChanged(e: editorCommon.IConfigurationChangedEvent): boolean {
 		if (e.lineHeight) {
 			this._lineHeight = this._context.configuration.editor.lineHeight;
 		}
-		if (e.glyphMargin) {
-			this._glyphMargin = this._context.configuration.editor.glyphMargin;
+		if (e.viewInfo.glyphMargin) {
+			this._glyphMargin = this._context.configuration.editor.viewInfo.glyphMargin;
 		}
 		return true;
 	}
-	public onLayoutChanged(layoutInfo:editorCommon.IEditorLayoutInfo): boolean {
+	public onLayoutChanged(layoutInfo: editorCommon.EditorLayoutInfo): boolean {
 		this._glyphMarginLeft = layoutInfo.glyphMarginLeft;
 		this._glyphMarginWidth = layoutInfo.glyphMarginWidth;
 		return true;
 	}
-	public onScrollChanged(e:editorCommon.IScrollEvent): boolean {
-		return e.vertical;
+	public onScrollChanged(e: editorCommon.IScrollEvent): boolean {
+		return e.scrollTopChanged;
 	}
 	public onZonesChanged(): boolean {
 		return true;
 	}
-	public onScrollWidthChanged(scrollWidth:number): boolean {
-		return false;
-	}
-	public onScrollHeightChanged(scrollHeight:number): boolean {
-		return false;
-	}
 
 	// --- end event handlers
 
-	protected _getDecorations(ctx:IRenderingContext): DecorationToRender[] {
+	protected _getDecorations(ctx: IRenderingContext): DecorationToRender[] {
 		let decorations = ctx.getDecorationsInViewport();
-		let r:DecorationToRender[] = [];
+		let r: DecorationToRender[] = [];
 		for (let i = 0, len = decorations.length; i < len; i++) {
 			let d = decorations[i];
 			if (d.options.glyphMarginClassName) {
@@ -166,7 +161,7 @@ export class GlyphMarginOverlay extends DedupOverlay {
 		return r;
 	}
 
-	public prepareRender(ctx:IRenderingContext): void {
+	public prepareRender(ctx: IRenderingContext): void {
 		if (!this.shouldRender()) {
 			throw new Error('I did not ask to render!');
 		}
@@ -194,8 +189,8 @@ export class GlyphMarginOverlay extends DedupOverlay {
 				output[lineIndex] = '';
 			} else {
 				output[lineIndex] = (
-					'<div class="cgmr'
-					+ classNames
+					'<div class="cgmr '
+					+ classNames.join(' ')
 					+ common
 				);
 			}
@@ -204,7 +199,7 @@ export class GlyphMarginOverlay extends DedupOverlay {
 		this._renderResult = output;
 	}
 
-	public render(startLineNumber:number, lineNumber:number): string {
+	public render(startLineNumber: number, lineNumber: number): string {
 		if (!this._renderResult) {
 			return '';
 		}

@@ -5,77 +5,28 @@
 
 'use strict';
 
+import * as fs from 'fs';
+import * as crypto from 'crypto';
 import nls = require('vs/nls');
 import pfs = require('vs/base/node/pfs');
-import URI from 'vs/base/common/uri';
-import {TPromise} from 'vs/base/common/winjs.base';
+import { TPromise } from 'vs/base/common/winjs.base';
 import paths = require('vs/base/common/paths');
-import {IExtensionService, IExtensionDescription} from 'vs/platform/extensions/common/extensions';
-import {ExtensionsRegistry} from 'vs/platform/extensions/common/extensionsRegistry';
-import {ExtHostAPIImplementation} from 'vs/workbench/api/node/extHost.api.impl';
-import {IMainProcessExtHostIPC} from 'vs/platform/extensions/common/ipcRemoteCom';
-import {ITelemetryService} from 'vs/platform/telemetry/common/telemetry';
-import {IInstantiationService} from 'vs/platform/instantiation/common/instantiation';
-import {InstantiationService} from 'vs/platform/instantiation/common/instantiationService';
-import {ServiceCollection} from 'vs/platform/instantiation/common/serviceCollection';
-import {ExtHostExtensionService} from 'vs/platform/extensions/common/nativeExtensionService';
-import {IThreadService} from 'vs/platform/thread/common/thread';
-import {ExtHostThreadService} from 'vs/platform/thread/common/extHostThreadService';
-import {RemoteTelemetryService} from 'vs/platform/telemetry/common/remoteTelemetryService';
-import {BaseWorkspaceContextService} from 'vs/platform/workspace/common/baseWorkspaceContextService';
-import {ExtensionScanner, MessagesCollector} from 'vs/workbench/node/extensionPoints';
-import {IWorkspaceContextService} from 'vs/platform/workspace/common/workspace';
-import {Client} from 'vs/base/parts/ipc/node/ipc.net';
-import {IExtensionsChannel, ExtensionsChannelClient} from 'vs/workbench/parts/extensions/common/extensionsIpc';
-import {IExtensionsService} from 'vs/workbench/parts/extensions/common/extensions';
-
-const DIRNAME = URI.parse(require.toUrl('./')).fsPath;
-const BASE_PATH = paths.normalize(paths.join(DIRNAME, '../../../..'));
-const BUILTIN_EXTENSIONS_PATH = paths.join(BASE_PATH, 'extensions');
-
-export interface IInitData {
-	threadService: any;
-	contextService: {
-		workspace: any;
-		configuration: any;
-		options: any;
-	};
-}
+import { createApiFactory, defineAPI } from 'vs/workbench/api/node/extHost.api.impl';
+import { IMainProcessExtHostIPC } from 'vs/platform/extensions/common/ipcRemoteCom';
+import { ExtHostExtensionService } from 'vs/workbench/api/node/extHostExtensionService';
+import { ExtHostThreadService } from 'vs/workbench/services/thread/common/extHostThreadService';
+import { RemoteTelemetryService } from 'vs/workbench/api/node/extHostTelemetry';
+import { IWorkspaceContextService, WorkspaceContextService } from 'vs/platform/workspace/common/workspace';
+import { IInitData, IEnvironment, MainContext } from 'vs/workbench/api/node/extHost.protocol';
+import * as errors from 'vs/base/common/errors';
 
 const nativeExit = process.exit.bind(process);
-process.exit = function() {
+process.exit = function () {
 	const err = new Error('An extension called process.exit() and this was prevented.');
 	console.warn((<any>err).stack);
 };
 export function exit(code?: number) {
 	nativeExit(code);
-}
-
-export function createServices(remoteCom: IMainProcessExtHostIPC, initData: IInitData, sharedProcessClient: Client): IInstantiationService {
-
-	let contextService = new BaseWorkspaceContextService(initData.contextService.workspace, initData.contextService.configuration, initData.contextService.options);
-	let threadService = new ExtHostThreadService(remoteCom);
-	threadService.setInstantiationService(new InstantiationService(new ServiceCollection([IThreadService, threadService])));
-	let telemetryService = new RemoteTelemetryService('pluginHostTelemetry', threadService);
-
-	let services = new ServiceCollection();
-	services.set(IWorkspaceContextService, contextService);
-	services.set(ITelemetryService, telemetryService);
-	services.set(IThreadService, threadService);
-	services.set(IExtensionService, new ExtHostExtensionService(threadService, telemetryService));
-
-	// Connect to shared process services
-	const channel = sharedProcessClient.getChannel<IExtensionsChannel>('extensions');
-	const extensionsService = new ExtensionsChannelClient(channel);
-	services.set(IExtensionsService, extensionsService);
-
-	let instantiationService = new InstantiationService(services, true);
-	threadService.setInstantiationService(instantiationService);
-
-	// Create the monaco API
-	instantiationService.createInstance(ExtHostAPIImplementation);
-
-	return instantiationService;
 }
 
 interface ITestRunner {
@@ -86,19 +37,81 @@ export class ExtensionHostMain {
 
 	private _isTerminating: boolean;
 	private _contextService: IWorkspaceContextService;
+	private _environment: IEnvironment;
 	private _extensionService: ExtHostExtensionService;
 
-	constructor(
-		@IWorkspaceContextService contextService: IWorkspaceContextService,
-		@IExtensionService extensionService: IExtensionService
-	) {
+	constructor(remoteCom: IMainProcessExtHostIPC, initData: IInitData) {
 		this._isTerminating = false;
-		this._contextService = contextService;
-		this._extensionService = <ExtHostExtensionService>extensionService;
+
+		this._environment = initData.environment;
+
+		this._contextService = new WorkspaceContextService(initData.contextService.workspace);
+		const workspaceStoragePath = this._getOrCreateWorkspaceStoragePath();
+
+		const threadService = new ExtHostThreadService(remoteCom);
+
+		const telemetryService = new RemoteTelemetryService('pluginHostTelemetry', threadService);
+
+		this._extensionService = new ExtHostExtensionService(initData.extensions, threadService, telemetryService, { _serviceBrand: 'optionalArgs', workspaceStoragePath });
+
+		// Error forwarding
+		const mainThreadErrors = threadService.get(MainContext.MainThreadErrors);
+		errors.setUnexpectedErrorHandler(err => mainThreadErrors.onUnexpectedExtHostError(errors.transformErrorForSerialization(err)));
+
+		// Create the ext host API
+		const factory = createApiFactory(initData.configuration, initData.telemetryInfo, threadService, this._extensionService, this._contextService);
+		defineAPI(factory, this._extensionService);
+	}
+
+	private _getOrCreateWorkspaceStoragePath(): string {
+		let workspaceStoragePath: string;
+
+		const workspace = this._contextService.getWorkspace();
+
+		function rmkDir(directory: string): boolean {
+			try {
+				fs.mkdirSync(directory);
+				return true;
+			} catch (err) {
+				if (err.code === 'ENOENT') {
+					if (rmkDir(paths.dirname(directory))) {
+						fs.mkdirSync(directory);
+						return true;
+					}
+				} else {
+					return fs.statSync(directory).isDirectory();
+				}
+			}
+		}
+
+		if (workspace) {
+			const hash = crypto.createHash('md5');
+			hash.update(workspace.resource.fsPath);
+			if (workspace.uid) {
+				hash.update(workspace.uid.toString());
+			}
+			workspaceStoragePath = paths.join(this._environment.appSettingsHome, 'workspaceStorage', hash.digest('hex'));
+			if (!fs.existsSync(workspaceStoragePath)) {
+				try {
+					if (rmkDir(workspaceStoragePath)) {
+						fs.writeFileSync(paths.join(workspaceStoragePath, 'meta.json'), JSON.stringify({
+							workspacePath: workspace.resource.fsPath,
+							uid: workspace.uid ? workspace.uid : null
+						}, null, 4));
+					} else {
+						workspaceStoragePath = undefined;
+					}
+				} catch (err) {
+					workspaceStoragePath = undefined;
+				}
+			}
+		}
+
+		return workspaceStoragePath;
 	}
 
 	public start(): TPromise<void> {
-		return this.readExtensions();
+		return this.handleEagerExtensions().then(() => this.handleExtensionTests());
 	}
 
 	public terminate(): void {
@@ -108,72 +121,29 @@ export class ExtensionHostMain {
 		}
 		this._isTerminating = true;
 
+		errors.setUnexpectedErrorHandler((err) => {
+			// TODO: write to log once we have one
+		});
+
+		let allPromises: TPromise<void>[] = [];
 		try {
-			let allExtensions = ExtensionsRegistry.getAllExtensionDescriptions();
+			let allExtensions = this._extensionService.getAllExtensionDescriptions();
 			let allExtensionsIds = allExtensions.map(ext => ext.id);
 			let activatedExtensions = allExtensionsIds.filter(id => this._extensionService.isActivated(id));
 
-			activatedExtensions.forEach((extensionId) => {
-				this._extensionService.deactivate(extensionId);
+			allPromises = activatedExtensions.map((extensionId) => {
+				return this._extensionService.deactivate(extensionId);
 			});
 		} catch (err) {
 			// TODO: write to log once we have one
 		}
 
+		let extensionsDeactivated = TPromise.join(allPromises).then<void>(() => void 0);
+
 		// Give extensions 1 second to wrap up any async dispose, then exit
 		setTimeout(() => {
-			exit();
+			TPromise.any<void>([TPromise.timeout(4000), extensionsDeactivated]).then(() => exit(), () => exit());
 		}, 1000);
-	}
-
-	private readExtensions(): TPromise<void> {
-		let collector = new MessagesCollector();
-		let env = this._contextService.getConfiguration().env;
-
-		return ExtensionHostMain.scanExtensions(collector, BUILTIN_EXTENSIONS_PATH, !env.disableExtensions ? env.userExtensionsHome : void 0, !env.disableExtensions ? env.extensionDevelopmentPath : void 0, env.version)
-			.then(null, err => {
-				collector.error('', err);
-				return [];
-			})
-			.then(extensions => {
-				// Register & Signal done
-				ExtensionsRegistry.registerExtensions(extensions);
-				this._extensionService.registrationDone(collector.getMessages());
-			})
-			.then(() => this.handleEagerExtensions())
-			.then(() => this.handleExtensionTests());
-	}
-
-	private static scanExtensions(collector: MessagesCollector, builtinExtensionsPath: string, userInstallPath: string, extensionDevelopmentPath: string, version: string): TPromise<IExtensionDescription[]> {
-		const builtinExtensions = ExtensionScanner.scanExtensions(version, collector, builtinExtensionsPath, true);
-		const userExtensions = !userInstallPath ? TPromise.as([]) : ExtensionScanner.scanExtensions(version, collector, userInstallPath, false);
-		const developedExtensions = !extensionDevelopmentPath ? TPromise.as([]) : ExtensionScanner.scanOneOrMultipleExtensions(version, collector, extensionDevelopmentPath, false);
-
-		return TPromise.join([builtinExtensions, userExtensions, developedExtensions]).then((_: IExtensionDescription[][]) => {
-			let builtinExtensions = _[0];
-			let userExtensions = _[1];
-			let developedExtensions = _[2];
-
-			let result: { [extensionId: string]: IExtensionDescription; } = {};
-			builtinExtensions.forEach((builtinExtension) => {
-				result[builtinExtension.id] = builtinExtension;
-			});
-			userExtensions.forEach((userExtension) => {
-				if (result.hasOwnProperty(userExtension.id)) {
-					collector.warn(userExtension.extensionFolderPath, nls.localize('overwritingExtension', "Overwriting extension {0} with {1}.", result[userExtension.id].extensionFolderPath, userExtension.extensionFolderPath));
-				}
-				result[userExtension.id] = userExtension;
-			});
-			developedExtensions.forEach(developedExtension => {
-				collector.info('', nls.localize('extensionUnderDevelopment', "Loading development extension at {0}", developedExtension.extensionFolderPath));
-				if (result.hasOwnProperty(developedExtension.id)) {
-					collector.warn(developedExtension.extensionFolderPath, nls.localize('overwritingExtension', "Overwriting extension {0} with {1}.", result[developedExtension.id].extensionFolderPath, developedExtension.extensionFolderPath));
-				}
-				result[developedExtension.id] = developedExtension;
-			});
-
-			return Object.keys(result).map(name => result[name]);
-		});
 	}
 
 	// Handle "eager" activation extensions
@@ -190,13 +160,13 @@ export class ExtensionHostMain {
 			return TPromise.as(null);
 		}
 
-		let folderPath = workspace.resource.fsPath;
+		const folderPath = workspace.resource.fsPath;
 
-		let desiredFilesMap: {
+		const desiredFilesMap: {
 			[filename: string]: boolean;
 		} = {};
 
-		ExtensionsRegistry.getAllExtensionDescriptions().forEach((desc) => {
+		this._extensionService.getAllExtensionDescriptions().forEach((desc) => {
 			let activationEvents = desc.activationEvents;
 			if (!activationEvents) {
 				return;
@@ -210,27 +180,22 @@ export class ExtensionHostMain {
 			}
 		});
 
-		return TPromise.join(
-			Object.keys(desiredFilesMap).map(
-				(fileName) => pfs.fileExistsWithResult(paths.join(folderPath, fileName), fileName)
-			)
-		).then((fileNames: string[]) => {
-			fileNames.forEach((existingFileName) => {
-				if (!existingFileName) {
-					return;
-				}
+		const fileNames = Object.keys(desiredFilesMap);
 
-				let activationEvent = 'workspaceContains:' + existingFileName;
-				this._extensionService.activateByEvent(activationEvent).then(null, (err) => {
-					console.error(err);
+		return TPromise.join(fileNames.map(f => pfs.exists(paths.join(folderPath, f)))).then(exists => {
+			fileNames
+				.filter((f, i) => exists[i])
+				.forEach(fileName => {
+					const activationEvent = `workspaceContains:${fileName}`;
+
+					this._extensionService.activateByEvent(activationEvent)
+						.done(null, err => console.error(err));
 				});
-			});
 		});
 	}
 
 	private handleExtensionTests(): TPromise<void> {
-		let env = this._contextService.getConfiguration().env;
-		if (!env.extensionTestsPath || !env.extensionDevelopmentPath) {
+		if (!this._environment.extensionTestsPath || !this._environment.extensionDevelopmentPath) {
 			return TPromise.as(null);
 		}
 
@@ -238,7 +203,7 @@ export class ExtensionHostMain {
 		let testRunner: ITestRunner;
 		let requireError: Error;
 		try {
-			testRunner = <any>require.__$__nodeRequire(env.extensionTestsPath);
+			testRunner = <any>require.__$__nodeRequire(this._environment.extensionTestsPath);
 		} catch (error) {
 			requireError = error;
 		}
@@ -246,7 +211,7 @@ export class ExtensionHostMain {
 		// Execute the runner if it follows our spec
 		if (testRunner && typeof testRunner.run === 'function') {
 			return new TPromise<void>((c, e) => {
-				testRunner.run(env.extensionTestsPath, (error, failures) => {
+				testRunner.run(this._environment.extensionTestsPath, (error, failures) => {
 					if (error) {
 						e(error.toString());
 					} else {
@@ -264,7 +229,7 @@ export class ExtensionHostMain {
 			this.gracefulExit(1 /* ERROR */);
 		}
 
-		return TPromise.wrapError<void>(requireError ? requireError.toString() : nls.localize('extensionTestError', "Path {0} does not point to a valid extension test runner.", env.extensionTestsPath));
+		return TPromise.wrapError<void>(requireError ? requireError.toString() : nls.localize('extensionTestError', "Path {0} does not point to a valid extension test runner.", this._environment.extensionTestsPath));
 	}
 
 	private gracefulExit(code: number): void {

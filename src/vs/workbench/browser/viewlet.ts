@@ -4,25 +4,26 @@
  *--------------------------------------------------------------------------------------------*/
 
 import nls = require('vs/nls');
-import {TPromise} from 'vs/base/common/winjs.base';
+import { TPromise } from 'vs/base/common/winjs.base';
 import DOM = require('vs/base/browser/dom');
 import errors = require('vs/base/common/errors');
-import {Registry} from 'vs/platform/platform';
-import {Dimension, Builder, $} from 'vs/base/browser/builder';
-import {IAction, IActionRunner, Action} from 'vs/base/common/actions';
-import {IActionItem, ActionsOrientation} from 'vs/base/browser/ui/actionbar/actionbar';
-import {ITree, IFocusEvent, ISelectionEvent} from 'vs/base/parts/tree/browser/tree';
-import {prepareActions} from 'vs/workbench/browser/actionBarRegistry';
-import {ToolBar} from 'vs/base/browser/ui/toolbar/toolbar';
-import {DelayedDragHandler} from 'vs/base/browser/dnd';
-import {dispose, IDisposable} from 'vs/base/common/lifecycle';
-import {CollapsibleView, CollapsibleState, FixedCollapsibleView, IView} from 'vs/base/browser/ui/splitview/splitview';
-import {IViewletService} from 'vs/workbench/services/viewlet/common/viewletService';
-import {IWorkbenchEditorService} from 'vs/workbench/services/editor/common/editorService';
-import {IViewlet} from 'vs/workbench/common/viewlet';
-import {Composite, CompositeDescriptor, CompositeRegistry} from 'vs/workbench/browser/composite';
-import {IContextMenuService} from 'vs/platform/contextview/browser/contextView';
-import {IMessageService} from 'vs/platform/message/common/message';
+import { Registry } from 'vs/platform/platform';
+import { Dimension, Builder, $ } from 'vs/base/browser/builder';
+import { IAction, IActionRunner, Action } from 'vs/base/common/actions';
+import { IActionItem, ActionsOrientation } from 'vs/base/browser/ui/actionbar/actionbar';
+import { ITree, IFocusEvent, ISelectionEvent } from 'vs/base/parts/tree/browser/tree';
+import { prepareActions } from 'vs/workbench/browser/actionBarRegistry';
+import { ToolBar } from 'vs/base/browser/ui/toolbar/toolbar';
+import { DelayedDragHandler } from 'vs/base/browser/dnd';
+import { dispose, IDisposable } from 'vs/base/common/lifecycle';
+import { CollapsibleView, CollapsibleState, FixedCollapsibleView, IView } from 'vs/base/browser/ui/splitview/splitview';
+import { IViewletService } from 'vs/workbench/services/viewlet/common/viewletService';
+import { IWorkbenchEditorService } from 'vs/workbench/services/editor/common/editorService';
+import { IViewlet } from 'vs/workbench/common/viewlet';
+import { Composite, CompositeDescriptor, CompositeRegistry } from 'vs/workbench/browser/composite';
+import { IContextMenuService } from 'vs/platform/contextview/browser/contextView';
+import { IMessageService } from 'vs/platform/message/common/message';
+import { IKeybindingService } from 'vs/platform/keybinding/common/keybinding';
 
 export abstract class Viewlet extends Composite implements IViewlet {
 
@@ -51,8 +52,8 @@ export abstract class ViewerViewlet extends Viewlet {
 		this.viewer = this.createViewer(this.viewerContainer);
 
 		// Eventing
-		this.toUnbind.push(this.viewer.addListener('selection', (e: ISelectionEvent) => this.onSelection(e)));
-		this.toUnbind.push(this.viewer.addListener('focus', (e: IFocusEvent) => this.onFocus(e)));
+		this.toUnbind.push(this.viewer.addListener2('selection', (e: ISelectionEvent) => this.onSelection(e)));
+		this.toUnbind.push(this.viewer.addListener2('focus', (e: IFocusEvent) => this.onFocus(e)));
 
 		return TPromise.as(null);
 	}
@@ -148,9 +149,14 @@ export abstract class ViewerViewlet extends Viewlet {
 }
 
 /**
- * A viewlet descriptor is a leightweight descriptor of a viewlet in the monaco workbench.
+ * A viewlet descriptor is a leightweight descriptor of a viewlet in the workbench.
  */
-export class ViewletDescriptor extends CompositeDescriptor<Viewlet> { }
+export class ViewletDescriptor extends CompositeDescriptor<Viewlet> {
+
+	constructor(moduleId: string, ctorName: string, id: string, name: string, cssClass?: string, order?: number) {
+		super(moduleId, ctorName, id, name, cssClass, order);
+	}
+}
 
 export const Extensions = {
 	Viewlets: 'workbench.contributions.viewlets'
@@ -170,14 +176,14 @@ export class ViewletRegistry extends CompositeRegistry<Viewlet> {
 	 * Returns the viewlet descriptor for the given id or null if none.
 	 */
 	public getViewlet(id: string): ViewletDescriptor {
-		return this.getComposite(id);
+		return this.getComposite(id) as ViewletDescriptor;
 	}
 
 	/**
 	 * Returns an array of registered viewlets known to the platform.
 	 */
 	public getViewlets(): ViewletDescriptor[] {
-		return this.getComposits();
+		return this.getComposits() as ViewletDescriptor[];
 	}
 
 	/**
@@ -296,8 +302,8 @@ export abstract class AdaptiveCollapsibleViewletView extends FixedCollapsibleVie
 		initialBodySize: number,
 		collapsed: boolean,
 		private viewName: string,
-		@IMessageService private messageService: IMessageService,
-		@IContextMenuService protected contextMenuService: IContextMenuService
+		private keybindingService: IKeybindingService,
+		protected contextMenuService: IContextMenuService
 	) {
 		super({
 			expandedBodySize: initialBodySize,
@@ -320,7 +326,16 @@ export abstract class AdaptiveCollapsibleViewletView extends FixedCollapsibleVie
 		this.toolBar = new ToolBar($('div.actions').appendTo(container).getHTMLElement(), this.contextMenuService, {
 			orientation: ActionsOrientation.HORIZONTAL,
 			actionItemProvider: (action) => { return this.getActionItem(action); },
-			ariaLabel: nls.localize('viewToolbarAriaLabel', "{0} actions", this.viewName)
+			ariaLabel: nls.localize('viewToolbarAriaLabel', "{0} actions", this.viewName),
+			getKeyBinding: (action) => {
+				const opts = this.keybindingService.lookupKeybindings(action.id);
+				if (opts.length > 0) {
+					return opts[0]; // only take the first one
+				}
+
+				return null;
+			},
+			getKeyBindingLabel: (key) => this.keybindingService.getLabelFor(key)
 		});
 		this.toolBar.actionRunner = this.actionRunner;
 		this.toolBar.setActions(prepareActions(this.getActions()), prepareActions(this.getSecondaryActions()))();
@@ -416,13 +431,16 @@ export abstract class CollapsibleViewletView extends CollapsibleView implements 
 		actionRunner: IActionRunner,
 		collapsed: boolean,
 		private viewName: string,
-		@IMessageService protected messageService: IMessageService,
-		@IContextMenuService protected contextMenuService: IContextMenuService
+		protected messageService: IMessageService,
+		private keybindingService: IKeybindingService,
+		protected contextMenuService: IContextMenuService,
+		headerSize?: number
 	) {
 		super({
 			minimumSize: 2 * 22,
 			initialState: collapsed ? CollapsibleState.COLLAPSED : CollapsibleState.EXPANDED,
-			ariaHeaderLabel: viewName
+			ariaHeaderLabel: viewName,
+			headerSize
 		});
 
 		this.actionRunner = actionRunner;
@@ -445,7 +463,16 @@ export abstract class CollapsibleViewletView extends CollapsibleView implements 
 		this.toolBar = new ToolBar($('div.actions').appendTo(container).getHTMLElement(), this.contextMenuService, {
 			orientation: ActionsOrientation.HORIZONTAL,
 			actionItemProvider: (action) => { return this.getActionItem(action); },
-			ariaLabel: nls.localize('viewToolbarAriaLabel', "{0} actions", this.viewName)
+			ariaLabel: nls.localize('viewToolbarAriaLabel', "{0} actions", this.viewName),
+			getKeyBinding: (action) => {
+				const opts = this.keybindingService.lookupKeybindings(action.id);
+				if (opts.length > 0) {
+					return opts[0]; // only take the first one
+				}
+
+				return null;
+			},
+			getKeyBindingLabel: (key) => this.keybindingService.getLabelFor(key)
 		});
 		this.toolBar.actionRunner = this.actionRunner;
 		this.toolBar.setActions(prepareActions(this.getActions()), prepareActions(this.getSecondaryActions()))();
@@ -508,7 +535,9 @@ export abstract class CollapsibleViewletView extends CollapsibleView implements 
 		this.treeContainer = null;
 		this.tree.dispose();
 
-		this.dragHandler.dispose();
+		if (this.dragHandler) {
+			this.dragHandler.dispose();
+		}
 
 		this.toDispose = dispose(this.toDispose);
 

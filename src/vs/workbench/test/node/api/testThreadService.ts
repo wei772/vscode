@@ -5,16 +5,27 @@
 
 'use strict';
 
-import {NullThreadService} from 'vs/platform/test/common/nullThreadService';
-import {SyncDescriptor0} from 'vs/platform/instantiation/common/descriptors';
-import {IInstantiationService} from 'vs/platform/instantiation/common/instantiation';
-import {TPromise} from 'vs/base/common/winjs.base';
+import { TPromise } from 'vs/base/common/winjs.base';
+import { AbstractThreadService } from 'vs/workbench/services/thread/common/abstractThreadService';
+import { IThreadService, ProxyIdentifier } from 'vs/workbench/services/thread/common/threadService';
 
-export class TestThreadService extends NullThreadService {
+export function OneGetThreadService(thing: any): IThreadService {
+	return {
+		_serviceBrand: undefined,
+		get<T>(): T {
+			return thing;
+		},
+		set<T>(): void {
+			throw new Error();
+		}
+	};
+}
 
-	constructor(instantiationService: IInstantiationService) {
-		super();
-		this.setInstantiationService(instantiationService);
+export class TestThreadService extends AbstractThreadService implements IThreadService {
+	public _serviceBrand: any;
+
+	constructor() {
+		super(false);
 	}
 
 	private _callCountValue: number = 0;
@@ -45,7 +56,7 @@ export class TestThreadService extends NullThreadService {
 			if (!this._idle) {
 				this._idle = new TPromise<any>((c, e) => {
 					this._completeIdle = c;
-				}, function() {
+				}, function () {
 					// no cancel
 				});
 			}
@@ -53,46 +64,42 @@ export class TestThreadService extends NullThreadService {
 		});
 	}
 
-	protected _registerAndInstantiateMainProcessActor<T>(id: string, descriptor: SyncDescriptor0<T>): T {
-
-		let _calls: {path: string; args: any[] }[] = [];
-		let _instance: any;
-
-		return this._getOrCreateProxyInstance({
-
-			callOnRemote: (proxyId: string, path: string, args: any[]): TPromise<any> => {
-
-				this._callCount++;
-				_calls.push({path, args});
-
-				return new TPromise<any>((c) => {
-					setTimeout(c, 0);
-				}).then(() => {
-					if (!_instance) {
-						_instance = this._instantiationService.createInstance(descriptor.ctor);
-					}
-					let p: TPromise<any>;
-					try {
-						let {path, args} = _calls.shift();
-						let result = (<Function>_instance[path]).apply(_instance, args);
-						p = TPromise.is(result) ? result : TPromise.as(result);
-					} catch (err) {
-						p = TPromise.wrapError(err);
-					}
-
-					return p.then(result => {
-						this._callCount--;
-						return result;
-					}, err => {
-						this._callCount--;
-						return TPromise.wrapError(err);
-					});
-				});
-			}
-		}, id, descriptor);
+	private _testInstances: { [id: string]: any; } = Object.create(null);
+	setTestInstance<T>(identifier: ProxyIdentifier<T>, value: T): T {
+		this._testInstances[identifier.id] = value;
+		return value;
 	}
 
-	protected _registerAndInstantiateExtHostActor<T>(id: string, descriptor: SyncDescriptor0<T>): T {
-		return this._getOrCreateLocalInstance(id, descriptor);
+	get<T>(identifier: ProxyIdentifier<T>): T {
+		let id = identifier.id;
+		if (this._locals[id]) {
+			return this._locals[id];
+		}
+		return super.get(identifier);
+	}
+
+	protected _callOnRemote(proxyId: string, path: string, args: any[]): TPromise<any> {
+		this._callCount++;
+
+		return new TPromise<any>((c) => {
+			setTimeout(c, 0);
+		}).then(() => {
+			const instance = this._testInstances[proxyId];
+			let p: Thenable<any>;
+			try {
+				let result = (<Function>instance[path]).apply(instance, args);
+				p = TPromise.is(result) ? result : TPromise.as(result);
+			} catch (err) {
+				p = TPromise.wrapError(err);
+			}
+
+			return p.then(result => {
+				this._callCount--;
+				return result;
+			}, err => {
+				this._callCount--;
+				return TPromise.wrapError(err);
+			});
+		});
 	}
 }

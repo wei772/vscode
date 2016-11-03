@@ -6,14 +6,13 @@
 'use strict';
 
 import * as assert from 'assert';
-import {Build, Builder} from 'vs/base/browser/builder';
-import {Part} from 'vs/workbench/browser/part';
+import { Build, Builder } from 'vs/base/browser/builder';
+import { Part } from 'vs/workbench/browser/part';
 import * as Types from 'vs/base/common/types';
-import * as TestUtils from 'vs/workbench/test/browser/servicesTestUtils';
-import {BaseWorkspaceContextService} from 'vs/platform/workspace/common/baseWorkspaceContextService';
-import {IWorkspaceContextService} from 'vs/platform/workspace/common/workspace';
-import {IStorageService} from 'vs/platform/storage/common/storage';
-import {Storage, InMemoryLocalStorage} from 'vs/workbench/common/storage';
+import * as TestUtils from 'vs/test/utils/servicesTestUtils';
+import { IWorkspaceContextService, WorkspaceContextService } from 'vs/platform/workspace/common/workspace';
+import { IStorageService } from 'vs/platform/storage/common/storage';
+import { StorageService, InMemoryLocalStorage } from 'vs/workbench/services/storage/common/storageService';
 
 class MyPart extends Part {
 
@@ -44,7 +43,7 @@ class MyPart2 extends Part {
 	}
 
 	public createTitleArea(parent: Builder): Builder {
-		return parent.div(function(div) {
+		return parent.div(function (div) {
 			div.span({
 				id: 'myPart.title',
 				innerHtml: 'Title'
@@ -53,7 +52,7 @@ class MyPart2 extends Part {
 	}
 
 	public createContentArea(parent: Builder): Builder {
-		return parent.div(function(div) {
+		return parent.div(function (div) {
 			div.span({
 				id: 'myPart.content',
 				innerHtml: 'Content'
@@ -62,7 +61,7 @@ class MyPart2 extends Part {
 	}
 
 	public createStatusArea(parent: Builder): Builder {
-		return parent.div(function(div) {
+		return parent.div(function (div) {
 			div.span({
 				id: 'myPart.status',
 				innerHtml: 'Status'
@@ -82,7 +81,7 @@ class MyPart3 extends Part {
 	}
 
 	public createContentArea(parent: Builder): Builder {
-		return parent.div(function(div) {
+		return parent.div(function (div) {
 			div.span({
 				id: 'myPart.content',
 				innerHtml: 'Content'
@@ -105,15 +104,15 @@ suite('Workbench Part', () => {
 		fixture = document.createElement('div');
 		fixture.id = fixtureId;
 		document.body.appendChild(fixture);
-		context = new BaseWorkspaceContextService(TestUtils.TestWorkspace, TestUtils.TestConfiguration, null);
-		storage = new Storage(context, new InMemoryLocalStorage());
+		context = new WorkspaceContextService(TestUtils.TestWorkspace);
+		storage = new StorageService(new InMemoryLocalStorage(), null, context, TestUtils.TestEnvironmentService);
 	});
 
 	teardown(() => {
 		document.body.removeChild(fixture);
 	});
 
-	test('Creation', function() {
+	test('Creation', function () {
 		let b = Build.withElementById(fixtureId);
 		b.div().hide();
 
@@ -150,7 +149,7 @@ suite('Workbench Part', () => {
 		assert.strictEqual(Types.isEmptyObject(memento), true);
 	});
 
-	test('Part Layout with Title, Content and Status', function() {
+	test('Part Layout with Title, Content and Status', function () {
 		let b = Build.withElementById(fixtureId);
 		b.div().hide();
 
@@ -162,7 +161,7 @@ suite('Workbench Part', () => {
 		assert(Build.withElementById('myPart.status'));
 	});
 
-	test('Part Layout with Content only', function() {
+	test('Part Layout with Content only', function () {
 		let b = Build.withElementById(fixtureId);
 		b.div().hide();
 

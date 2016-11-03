@@ -4,12 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {MarkedString, CompletionItemKind, CompletionItem} from 'vscode-languageserver';
+import { MarkedString, CompletionItemKind, CompletionItem } from 'vscode-languageserver';
 import Strings = require('../utils/strings');
-import {XHRResponse, getErrorStatusDescription} from 'request-light';
-import {IJSONWorkerContribution, ISuggestionsCollector} from '../jsonContributions';
-import {IRequestService} from '../jsonSchemaService';
-import {JSONLocation} from '../jsonLocation';
+import { XHRResponse, getErrorStatusDescription } from 'request-light';
+import { JSONWorkerContribution, JSONPath, CompletionsCollector } from 'vscode-json-languageservice';
+import { xhr } from 'request-light';
 
 import * as nls from 'vscode-nls';
 const localize = nls.loadMessageBundle();
@@ -28,22 +27,20 @@ interface NugetServices {
 	[key: string]: string;
 }
 
-export class ProjectJSONContribution implements IJSONWorkerContribution {
+export class ProjectJSONContribution implements JSONWorkerContribution {
 
-	private requestService : IRequestService;
-	private cachedProjects: { [id: string]: { version: string, description: string, time: number }} = {};
+	private cachedProjects: { [id: string]: { version: string, description: string, time: number } } = {};
 	private cacheSize: number = 0;
 	private nugetIndexPromise: Thenable<NugetServices>;
 
-	public constructor(requestService: IRequestService) {
-		this.requestService = requestService;
+	public constructor() {
 	}
 
 	private isProjectJSONFile(resource: string): boolean {
 		return Strings.endsWith(resource, '/project.json');
 	}
 
-	private completeWithCache(id: string, item: CompletionItem) : boolean {
+	private completeWithCache(id: string, item: CompletionItem): boolean {
 		let entry = this.cachedProjects[id];
 		if (entry) {
 			if (new Date().getTime() - entry.time > CACHE_EXPIRY) {
@@ -60,10 +57,10 @@ export class ProjectJSONContribution implements IJSONWorkerContribution {
 	}
 
 	private addCached(id: string, version: string, description: string) {
-		this.cachedProjects[id] = { version, description, time: new Date().getTime()};
+		this.cachedProjects[id] = { version, description, time: new Date().getTime() };
 		this.cacheSize++;
 		if (this.cacheSize > 50) {
-			let currentTime = new Date().getTime() ;
+			let currentTime = new Date().getTime();
 			for (let id in this.cachedProjects) {
 				let entry = this.cachedProjects[id];
 				if (currentTime - entry.time > CACHE_EXPIRY) {
@@ -74,12 +71,12 @@ export class ProjectJSONContribution implements IJSONWorkerContribution {
 		}
 	}
 
-	private getNugetIndex() : Thenable<NugetServices> {
+	private getNugetIndex(): Thenable<NugetServices> {
 		if (!this.nugetIndexPromise) {
 			this.nugetIndexPromise = this.makeJSONRequest<any>(FEED_INDEX_URL).then(indexContent => {
-				let services : NugetServices = {};
+				let services: NugetServices = {};
 				if (indexContent && Array.isArray(indexContent.resources)) {
-					let resources = <any[]>  indexContent.resources;
+					let resources = <any[]>indexContent.resources;
 					for (let i = resources.length - 1; i >= 0; i--) {
 						let type = resources[i]['@type'];
 						let id = resources[i]['@id'];
@@ -94,7 +91,7 @@ export class ProjectJSONContribution implements IJSONWorkerContribution {
 		return this.nugetIndexPromise;
 	}
 
-	private getNugetService(serviceType: string) : Thenable<string> {
+	private getNugetService(serviceType: string): Thenable<string> {
 		return this.getNugetIndex().then(services => {
 			let serviceURL = services[serviceType];
 			if (!serviceURL) {
@@ -104,14 +101,14 @@ export class ProjectJSONContribution implements IJSONWorkerContribution {
 		});
 	}
 
-	public collectDefaultSuggestions(resource: string, result: ISuggestionsCollector): Thenable<any> {
+	public collectDefaultCompletions(resource: string, result: CompletionsCollector): Thenable<any> {
 		if (this.isProjectJSONFile(resource)) {
 			let defaultValue = {
 				'version': '{{1.0.0-*}}',
 				'dependencies': {},
 				'frameworks': {
-					'dnx451': {},
-					'dnxcore50': {}
+					'net461': {},
+					'netcoreapp1.0': {}
 				}
 			};
 			result.add({ kind: CompletionItemKind.Class, label: localize('json.project.default', 'Default project.json'), insertText: JSON.stringify(defaultValue, null, '\t'), documentation: '' });
@@ -119,13 +116,13 @@ export class ProjectJSONContribution implements IJSONWorkerContribution {
 		return null;
 	}
 
-	private makeJSONRequest<T>(url: string) : Thenable<T> {
-		return this.requestService({
-			url : url
+	private makeJSONRequest<T>(url: string): Thenable<T> {
+		return xhr({
+			url: url
 		}).then(success => {
 			if (success.status === 200) {
 				try {
-					return <T> JSON.parse(success.responseText);
+					return <T>JSON.parse(success.responseText);
 				} catch (e) {
 					return Promise.reject<T>(localize('json.nugget.error.invalidformat', '{0} is not a valid JSON document', url));
 				}
@@ -136,19 +133,19 @@ export class ProjectJSONContribution implements IJSONWorkerContribution {
 		});
 	}
 
-	public collectPropertySuggestions(resource: string, location: JSONLocation, currentWord: string, addValue: boolean, isLast:boolean, result: ISuggestionsCollector) : Thenable<any> {
-		if (this.isProjectJSONFile(resource) && (location.matches(['dependencies']) || location.matches(['frameworks', '*', 'dependencies']) || location.matches(['frameworks', '*', 'frameworkAssemblies']))) {
+	public collectPropertyCompletions(resource: string, location: JSONPath, currentWord: string, addValue: boolean, isLast: boolean, result: CompletionsCollector): Thenable<any> {
+		if (this.isProjectJSONFile(resource) && (matches(location, ['dependencies']) || matches(location, ['frameworks', '*', 'dependencies']) || matches(location, ['frameworks', '*', 'frameworkAssemblies']))) {
 
 			return this.getNugetService('SearchAutocompleteService').then(service => {
-				let queryUrl : string;
+				let queryUrl: string;
 				if (currentWord.length > 0) {
-					queryUrl = service + '?q=' + encodeURIComponent(currentWord) +'&take=' + LIMIT;
+					queryUrl = service + '?q=' + encodeURIComponent(currentWord) + '&take=' + LIMIT;
 				} else {
 					queryUrl = service + '?take=' + LIMIT;
 				}
 				return this.makeJSONRequest<any>(queryUrl).then(resultObj => {
 					if (Array.isArray(resultObj.data)) {
-						let results = <any[]> resultObj.data;
+						let results = <any[]>resultObj.data;
 						for (let i = 0; i < results.length; i++) {
 							let name = results[i];
 							let insertText = JSON.stringify(name);
@@ -158,7 +155,7 @@ export class ProjectJSONContribution implements IJSONWorkerContribution {
 									insertText += ',';
 								}
 							}
-							let item : CompletionItem = { kind: CompletionItemKind.Property, label: name, insertText: insertText };
+							let item: CompletionItem = { kind: CompletionItemKind.Property, label: name, insertText: insertText, filterText: JSON.stringify(name) };
 							if (!this.completeWithCache(name, item)) {
 								item.data = RESOLVE_ID + name;
 							}
@@ -178,13 +175,13 @@ export class ProjectJSONContribution implements IJSONWorkerContribution {
 		return null;
 	}
 
-	public collectValueSuggestions(resource: string, location: JSONLocation, currentKey: string, result: ISuggestionsCollector): Thenable<any> {
-		if (this.isProjectJSONFile(resource) && (location.matches(['dependencies']) || location.matches(['frameworks', '*', 'dependencies']) || location.matches(['frameworks', '*', 'frameworkAssemblies']))) {
+	public collectValueCompletions(resource: string, location: JSONPath, currentKey: string, result: CompletionsCollector): Thenable<any> {
+		if (this.isProjectJSONFile(resource) && (matches(location, ['dependencies']) || matches(location, ['frameworks', '*', 'dependencies']) || matches(location, ['frameworks', '*', 'frameworkAssemblies']))) {
 			return this.getNugetService('PackageBaseAddress/3.0.0').then(service => {
 				let queryUrl = service + currentKey + '/index.json';
 				return this.makeJSONRequest<any>(queryUrl).then(obj => {
 					if (Array.isArray(obj.versions)) {
-						let results = <any[]> obj.versions;
+						let results = <any[]>obj.versions;
 						for (let i = 0; i < results.length; i++) {
 							let curr = results[i];
 							let name = JSON.stringify(curr);
@@ -206,26 +203,26 @@ export class ProjectJSONContribution implements IJSONWorkerContribution {
 		return null;
 	}
 
-	public getInfoContribution(resource: string, location: JSONLocation): Thenable<MarkedString[]> {
-		if (this.isProjectJSONFile(resource) && (location.matches(['dependencies', '*']) || location.matches(['frameworks', '*', 'dependencies', '*']) || location.matches(['frameworks', '*', 'frameworkAssemblies', '*']))) {
-			let pack = location.getSegments()[location.getSegments().length - 1];
+	public getInfoContribution(resource: string, location: JSONPath): Thenable<MarkedString[]> {
+		if (this.isProjectJSONFile(resource) && (matches(location, ['dependencies', '*']) || matches(location, ['frameworks', '*', 'dependencies', '*']) || matches(location, ['frameworks', '*', 'frameworkAssemblies', '*']))) {
+			let pack = <string>location[location.length - 1];
 
 			return this.getNugetService('SearchQueryService').then(service => {
-				let queryUrl = service + '?q=' + encodeURIComponent(pack) +'&take=' + 5;
+				let queryUrl = service + '?q=' + encodeURIComponent(pack) + '&take=' + 5;
 				return this.makeJSONRequest<any>(queryUrl).then(resultObj => {
-					let htmlContent : MarkedString[] = [];
+					let htmlContent: MarkedString[] = [];
 					htmlContent.push(localize('json.nugget.package.hover', '{0}', pack));
 					if (Array.isArray(resultObj.data)) {
-						let results = <any[]> resultObj.data;
+						let results = <any[]>resultObj.data;
 						for (let i = 0; i < results.length; i++) {
 							let res = results[i];
 							this.addCached(res.id, res.version, res.description);
 							if (res.id === pack) {
 								if (res.description) {
-									htmlContent.push(res.description);
+									htmlContent.push(MarkedString.fromPlainText(res.description));
 								}
 								if (res.version) {
-									htmlContent.push(localize('json.nugget.version.hover', 'Latest version: {0}', res.version));
+									htmlContent.push(MarkedString.fromPlainText(localize('json.nugget.version.hover', 'Latest version: {0}', res.version)));
 								}
 								break;
 							}
@@ -236,24 +233,24 @@ export class ProjectJSONContribution implements IJSONWorkerContribution {
 					return null;
 				});
 			}, (error) => {
-					return null;
+				return null;
 			});
 		}
 		return null;
 	}
 
-	public resolveSuggestion(item: CompletionItem) : Thenable<CompletionItem> {
+	public resolveSuggestion(item: CompletionItem): Thenable<CompletionItem> {
 		if (item.data && Strings.startsWith(item.data, RESOLVE_ID)) {
 			let pack = item.data.substring(RESOLVE_ID.length);
 			if (this.completeWithCache(pack, item)) {
 				return Promise.resolve(item);
 			}
 			return this.getNugetService('SearchQueryService').then(service => {
-				let queryUrl = service + '?q=' + encodeURIComponent(pack) +'&take=' + 10;
+				let queryUrl = service + '?q=' + encodeURIComponent(pack) + '&take=' + 10;
 				return this.makeJSONRequest<any>(queryUrl).then(resultObj => {
 					let itemResolved = false;
 					if (Array.isArray(resultObj.data)) {
-						let results = <any[]> resultObj.data;
+						let results = <any[]>resultObj.data;
 						for (let i = 0; i < results.length; i++) {
 							let curr = results[i];
 							this.addCached(curr.id, curr.version, curr.description);
@@ -269,4 +266,16 @@ export class ProjectJSONContribution implements IJSONWorkerContribution {
 		};
 		return null;
 	}
+}
+
+function matches(segments: JSONPath, pattern: string[]) {
+	let k = 0;
+	for (let i = 0; k < pattern.length && i < segments.length; i++) {
+		if (pattern[k] === segments[i] || pattern[k] === '*') {
+			k++;
+		} else if (pattern[k] !== '**') {
+			return false;
+		}
+	}
+	return k === pattern.length;
 }

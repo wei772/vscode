@@ -7,7 +7,7 @@
 import glob = require('vs/base/common/glob');
 import objects = require('vs/base/common/objects');
 import search = require('vs/platform/search/common/search');
-import {IConfigurationService} from 'vs/platform/configuration/common/configuration';
+import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
 
 export function getExcludes(configuration: search.ISearchConfiguration): glob.IExpression {
 	let fileExcludes = configuration && configuration.files && configuration.files.exclude;
@@ -59,6 +59,8 @@ export class QueryBuilder {
 			excludePattern: options.excludePattern,
 			includePattern: options.includePattern,
 			maxResults: options.maxResults,
+			sortByScore: options.sortByScore,
+			cacheKey: options.cacheKey,
 			fileEncoding: options.fileEncoding,
 			contentPattern: contentPattern
 		};

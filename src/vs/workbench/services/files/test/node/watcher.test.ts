@@ -8,11 +8,11 @@
 import assert = require('assert');
 
 import platform = require('vs/base/common/platform');
-import {FileChangeType, EventType, FileChangesEvent} from 'vs/platform/files/common/files';
+import { FileChangeType, EventType, FileChangesEvent } from 'vs/platform/files/common/files';
 import uri from 'vs/base/common/uri';
 import utils = require('vs/workbench/services/files/test/node/utils');
-import {IRawFileChange, toFileChangesEvent, normalize} from 'vs/workbench/services/files/node/watcher/common';
-import {IEventService} from 'vs/platform/event/common/event';
+import { IRawFileChange, toFileChangesEvent, normalize } from 'vs/workbench/services/files/node/watcher/common';
+import { IEventService } from 'vs/platform/event/common/event';
 
 class TestFileWatcher {
 	private eventEmitter: IEventService;
@@ -59,7 +59,7 @@ suite('Watcher', () => {
 			{ path: deleted.fsPath, type: FileChangeType.DELETED },
 		];
 
-		events.on(EventType.FILE_CHANGES, (e: FileChangesEvent) => {
+		events.addListener2(EventType.FILE_CHANGES, (e: FileChangesEvent) => {
 			assert.ok(e);
 			assert.equal(e.changes.length, 3);
 			assert.ok(e.contains(added, FileChangeType.ADDED));
@@ -99,7 +99,7 @@ suite('Watcher', () => {
 				{ path: updatedFile.fsPath, type: FileChangeType.UPDATED }
 			];
 
-			events.on(EventType.FILE_CHANGES, (e: FileChangesEvent) => {
+			events.addListener2(EventType.FILE_CHANGES, (e: FileChangesEvent) => {
 				assert.ok(e);
 				assert.equal(e.changes.length, 5);
 
@@ -130,7 +130,7 @@ suite('Watcher', () => {
 			{ path: unrelated.fsPath, type: FileChangeType.UPDATED },
 		];
 
-		events.on(EventType.FILE_CHANGES, (e: FileChangesEvent) => {
+		events.addListener2(EventType.FILE_CHANGES, (e: FileChangesEvent) => {
 			assert.ok(e);
 			assert.equal(e.changes.length, 1);
 
@@ -156,7 +156,7 @@ suite('Watcher', () => {
 			{ path: unrelated.fsPath, type: FileChangeType.UPDATED },
 		];
 
-		events.on(EventType.FILE_CHANGES, (e: FileChangesEvent) => {
+		events.addListener2(EventType.FILE_CHANGES, (e: FileChangesEvent) => {
 			assert.ok(e);
 			assert.equal(e.changes.length, 2);
 
@@ -183,7 +183,7 @@ suite('Watcher', () => {
 			{ path: unrelated.fsPath, type: FileChangeType.UPDATED },
 		];
 
-		events.on(EventType.FILE_CHANGES, (e: FileChangesEvent) => {
+		events.addListener2(EventType.FILE_CHANGES, (e: FileChangesEvent) => {
 			assert.ok(e);
 			assert.equal(e.changes.length, 2);
 
@@ -213,7 +213,7 @@ suite('Watcher', () => {
 			{ path: updated.fsPath, type: FileChangeType.DELETED }
 		];
 
-		events.on(EventType.FILE_CHANGES, (e: FileChangesEvent) => {
+		events.addListener2(EventType.FILE_CHANGES, (e: FileChangesEvent) => {
 			assert.ok(e);
 			assert.equal(e.changes.length, 2);
 

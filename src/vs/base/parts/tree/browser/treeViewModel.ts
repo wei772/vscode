@@ -45,7 +45,8 @@ export class HeightMap extends EventEmitter {
 			viewItem = this.heightMap[i - 1];
 
 			if (!viewItem) {
-				throw new Error('Tree error, onInsertItems: viewItem doesn\'t exist.');
+				console.error('view item doesnt exist');
+				return;
 			}
 
 			totalSize = viewItem.top + viewItem.height;
@@ -101,7 +102,8 @@ export class HeightMap extends EventEmitter {
 			viewItem = this.heightMap[i];
 
 			if (!viewItem) {
-				throw new Error('Tree error, onRemoveItems: viewItem doesn\'t exist.');
+				console.error('view item doesnt exist');
+				return;
 			}
 
 			sizeDiff -= viewItem.height;
@@ -141,7 +143,7 @@ export class HeightMap extends EventEmitter {
 		var item: Item;
 		var viewItem: IViewItem;
 		var newHeight: number;
-		var i: number, j:number = null;
+		var i: number, j: number = null;
 		var cummDiff = 0;
 
 		while (item = iterator.next()) {
@@ -172,7 +174,7 @@ export class HeightMap extends EventEmitter {
 		}
 	}
 
-	public onRefreshItem(item:IViewItem, needsRender:boolean=false): void {
+	public onRefreshItem(item: IViewItem, needsRender: boolean = false): void {
 		// noop
 	}
 
@@ -184,7 +186,7 @@ export class HeightMap extends EventEmitter {
 		return this.heightMap[this.indexAt(position)].model.id;
 	}
 
-	public withItemsInRange(start: number, end: number, fn: (item: string) =>void ): void {
+	public withItemsInRange(start: number, end: number, fn: (item: string) => void): void {
 		start = this.indexAt(start);
 		end = this.indexAt(end);
 		for (var i = start; i <= end; i++) {

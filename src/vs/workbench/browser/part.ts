@@ -6,8 +6,8 @@
 'use strict';
 
 import 'vs/css!./media/part';
-import {Dimension, Builder} from 'vs/base/browser/builder';
-import {WorkbenchComponent} from 'vs/workbench/common/component';
+import { Dimension, Builder } from 'vs/base/browser/builder';
+import { WorkbenchComponent } from 'vs/workbench/common/component';
 
 /**
  * Parts are layed out in the workbench and have their own layout that arranges a title,
@@ -25,7 +25,7 @@ export abstract class Part extends WorkbenchComponent {
 	}
 
 	/**
-	 * Note: Clients should not call this method, the monaco workbench calls this
+	 * Note: Clients should not call this method, the workbench calls this
 	 * method. Calling it otherwise may result in unexpected behavior.
 	 *
 	 * Called to create title, content and status area of the part.

@@ -3,43 +3,40 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import 'vs/css!./media/compositePart';
+import 'vs/css!./media/compositepart';
 import nls = require('vs/nls');
 import timer = require('vs/base/common/timer');
 import uuid = require('vs/base/common/uuid');
-import {TPromise} from 'vs/base/common/winjs.base';
-import {Registry} from 'vs/platform/platform';
-import {IDisposable} from 'vs/base/common/lifecycle';
-import {Dimension, Builder, $} from 'vs/base/browser/builder';
+import { TPromise } from 'vs/base/common/winjs.base';
+import { Registry } from 'vs/platform/platform';
+import { IDisposable, dispose } from 'vs/base/common/lifecycle';
+import { Dimension, Builder, $ } from 'vs/base/browser/builder';
 import events = require('vs/base/common/events');
 import strings = require('vs/base/common/strings');
+import { Emitter } from 'vs/base/common/event';
 import types = require('vs/base/common/types');
 import errors = require('vs/base/common/errors');
-import {CONTEXT as ToolBarContext, ToolBar} from 'vs/base/browser/ui/toolbar/toolbar';
-import {IActionItem, ActionsOrientation} from 'vs/base/browser/ui/actionbar/actionbar';
-import {ProgressBar} from 'vs/base/browser/ui/progressbar/progressbar';
-import {IActionBarRegistry, Extensions, prepareActions} from 'vs/workbench/browser/actionBarRegistry';
-import {Action, IAction} from 'vs/base/common/actions';
-import {Part} from 'vs/workbench/browser/part';
-import {Composite, CompositeRegistry} from 'vs/workbench/browser/composite';
-import {IComposite} from 'vs/workbench/common/composite';
-import {EventType as WorkbenchEventType, CompositeEvent} from 'vs/workbench/common/events';
-import {EventType as CompositeEventType} from 'vs/workbench/browser/composite';
-import {WorkbenchProgressService} from 'vs/workbench/services/progress/browser/progressService';
-import {IPartService} from 'vs/workbench/services/part/common/partService';
-import {IStorageService, StorageScope} from 'vs/platform/storage/common/storage';
-import {IContextMenuService} from 'vs/platform/contextview/browser/contextView';
-import {IEventService} from 'vs/platform/event/common/event';
-import {IInstantiationService} from 'vs/platform/instantiation/common/instantiation';
-import {ServiceCollection} from 'vs/platform/instantiation/common/serviceCollection';
-import {IMessageService, Severity} from 'vs/platform/message/common/message';
-import {IProgressService} from 'vs/platform/progress/common/progress';
-import {ITelemetryService} from 'vs/platform/telemetry/common/telemetry';
-import {IKeybindingService} from 'vs/platform/keybinding/common/keybindingService';
+import { CONTEXT as ToolBarContext, ToolBar } from 'vs/base/browser/ui/toolbar/toolbar';
+import { IActionItem, ActionsOrientation } from 'vs/base/browser/ui/actionbar/actionbar';
+import { ProgressBar } from 'vs/base/browser/ui/progressbar/progressbar';
+import { IActionBarRegistry, Extensions, prepareActions } from 'vs/workbench/browser/actionBarRegistry';
+import { Action, IAction } from 'vs/base/common/actions';
+import { Part } from 'vs/workbench/browser/part';
+import { Composite, CompositeRegistry } from 'vs/workbench/browser/composite';
+import { IComposite } from 'vs/workbench/common/composite';
+import { WorkbenchProgressService } from 'vs/workbench/services/progress/browser/progressService';
+import { IPartService } from 'vs/workbench/services/part/common/partService';
+import { IStorageService, StorageScope } from 'vs/platform/storage/common/storage';
+import { IContextMenuService } from 'vs/platform/contextview/browser/contextView';
+import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
+import { ServiceCollection } from 'vs/platform/instantiation/common/serviceCollection';
+import { IMessageService, Severity } from 'vs/platform/message/common/message';
+import { IProgressService } from 'vs/platform/progress/common/progress';
+import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
+import { IKeybindingService } from 'vs/platform/keybinding/common/keybinding';
 
 export abstract class CompositePart<T extends Composite> extends Part {
-	private activeCompositeListeners: { (): void; }[];
-	private instantiatedCompositeListeners: { (): void; }[];
+	private instantiatedCompositeListeners: IDisposable[];
 	private mapCompositeToCompositeContainer: { [compositeId: string]: Builder; };
 	private mapActionsBindingToComposite: { [compositeId: string]: () => void; };
 	private mapProgressServiceToComposite: { [compositeId: string]: IProgressService; };
@@ -53,11 +50,12 @@ export abstract class CompositePart<T extends Composite> extends Part {
 	private contentAreaSize: Dimension;
 	private telemetryActionsListener: IDisposable;
 	private currentCompositeOpenToken: string;
+	protected _onDidCompositeOpen = new Emitter<IComposite>();
+	protected _onDidCompositeClose = new Emitter<IComposite>();
 
 	constructor(
 		private messageService: IMessageService,
 		private storageService: IStorageService,
-		private eventService: IEventService,
 		private telemetryService: ITelemetryService,
 		private contextMenuService: IContextMenuService,
 		protected partService: IPartService,
@@ -66,13 +64,12 @@ export abstract class CompositePart<T extends Composite> extends Part {
 		private registry: CompositeRegistry<T>,
 		private activeCompositeSettingsKey: string,
 		private nameForTelemetry: string,
-		private compositeCssClass: string,
+		private compositeCSSClass: string,
 		private actionContributionScope: string,
 		id: string
 	) {
 		super(id);
 
-		this.activeCompositeListeners = [];
 		this.instantiatedCompositeListeners = [];
 		this.mapCompositeToCompositeContainer = {};
 		this.mapActionsBindingToComposite = {};
@@ -104,11 +101,8 @@ export abstract class CompositePart<T extends Composite> extends Part {
 		let currentCompositeOpenToken = uuid.generateUuid();
 		this.currentCompositeOpenToken = currentCompositeOpenToken;
 
-		// Emit Composite Opening Event
-		this.emit(WorkbenchEventType.COMPOSITE_OPENING, new CompositeEvent(id));
-
 		// Hide current
-		let hidePromise: TPromise<void>;
+		let hidePromise: TPromise<Composite>;
 		if (this.activeComposite) {
 			hidePromise = this.hideActiveComposite();
 		} else {
@@ -154,6 +148,12 @@ export abstract class CompositePart<T extends Composite> extends Part {
 					return composite;
 				});
 			});
+		}).then(composite => {
+			if (composite) {
+				this._onDidCompositeOpen.fire(composite);
+			}
+
+			return composite;
 		});
 	}
 
@@ -171,7 +171,7 @@ export abstract class CompositePart<T extends Composite> extends Part {
 		if (compositeDescriptor) {
 			let loaderPromise = this.compositeLoaderPromises[id];
 			if (!loaderPromise) {
-				let progressService = new WorkbenchProgressService(this.eventService, this.progressBar, compositeDescriptor.id, isActive);
+				let progressService = this.instantiationService.createInstance(WorkbenchProgressService, this.progressBar, compositeDescriptor.id, isActive);
 				let compositeInstantiationService = this.instantiationService.createChild(new ServiceCollection([IProgressService, progressService]));
 
 				loaderPromise = compositeInstantiationService.createInstance(compositeDescriptor).then((composite: Composite) => {
@@ -181,7 +181,7 @@ export abstract class CompositePart<T extends Composite> extends Part {
 					this.instantiatedComposits.push(composite);
 
 					// Register to title area update events from the composite
-					this.instantiatedCompositeListeners.push(composite.addListener(CompositeEventType.INTERNAL_COMPOSITE_TITLE_AREA_UPDATE, (e) => { this.onTitleAreaUpdate(e); }));
+					this.instantiatedCompositeListeners.push(composite.onTitleAreaUpdate(() => this.onTitleAreaUpdate(composite.getId())));
 
 					// Remove from Promises Cache since Loaded
 					delete this.compositeLoaderPromises[id];
@@ -213,9 +213,6 @@ export abstract class CompositePart<T extends Composite> extends Part {
 		// Remember
 		this.lastActiveCompositeId = this.activeComposite.getId();
 
-		// Register as Emitter to Workbench Bus
-		this.activeCompositeListeners.push(this.eventService.addEmitter(this.activeComposite, this.activeComposite.getId()));
-
 		let createCompositePromise: TPromise<void>;
 
 		// Composits created for the first time
@@ -224,7 +221,7 @@ export abstract class CompositePart<T extends Composite> extends Part {
 
 			// Build Container off-DOM
 			compositeContainer = $().div({
-				'class': ['composite', this.compositeCssClass],
+				'class': ['composite', this.compositeCSSClass],
 				id: composite.getId()
 			}, (div: Builder) => {
 				createCompositePromise = composite.create(div);
@@ -305,17 +302,14 @@ export abstract class CompositePart<T extends Composite> extends Part {
 				if (this.contentAreaSize) {
 					composite.layout(this.contentAreaSize);
 				}
-
-				// Emit Composite Opened Event
-				this.emit(WorkbenchEventType.COMPOSITE_OPENED, new CompositeEvent(this.activeComposite.getId()));
 			});
 		}, (error: any) => this.onError(error));
 	}
 
-	protected onTitleAreaUpdate(e: CompositeEvent): void {
+	protected onTitleAreaUpdate(compositeId: string): void {
 
 		// Active Composite
-		if (this.activeComposite && this.activeComposite.getId() === e.compositeId) {
+		if (this.activeComposite && this.activeComposite.getId() === compositeId) {
 
 			// Title
 			this.updateTitle(this.activeComposite.getId(), this.activeComposite.getTitle());
@@ -328,7 +322,7 @@ export abstract class CompositePart<T extends Composite> extends Part {
 
 		// Otherwise invalidate actions binding for next time when the composite becomes visible
 		else {
-			delete this.mapActionsBindingToComposite[e.compositeId];
+			delete this.mapActionsBindingToComposite[compositeId];
 		}
 	}
 
@@ -357,8 +351,8 @@ export abstract class CompositePart<T extends Composite> extends Part {
 	private collectCompositeActions(composite: Composite): () => void {
 
 		// From Composite
-		let primaryActions: IAction[] = composite.getActions();
-		let secondaryActions: IAction[] = composite.getSecondaryActions();
+		let primaryActions: IAction[] = composite.getActions().slice(0);
+		let secondaryActions: IAction[] = composite.getSecondaryActions().slice(0);
 
 		// From Part
 		primaryActions.push(...this.getActions());
@@ -381,7 +375,7 @@ export abstract class CompositePart<T extends Composite> extends Part {
 		return this.lastActiveCompositeId;
 	}
 
-	protected hideActiveComposite(): TPromise<void> {
+	protected hideActiveComposite(): TPromise<Composite> {
 		if (!this.activeComposite) {
 			return TPromise.as(null); // Nothing to do
 		}
@@ -403,14 +397,9 @@ export abstract class CompositePart<T extends Composite> extends Part {
 
 			// Empty Actions
 			this.toolBar.setActions([])();
+			this._onDidCompositeClose.fire(composite);
 
-			// Clear Listeners
-			while (this.activeCompositeListeners.length) {
-				this.activeCompositeListeners.pop()();
-			}
-
-			// Emit Composite Closed Event
-			this.emit(WorkbenchEventType.COMPOSITE_CLOSED, new CompositeEvent(composite.getId()));
+			return composite;
 		});
 	}
 
@@ -436,7 +425,16 @@ export abstract class CompositePart<T extends Composite> extends Part {
 			// Toolbar
 			this.toolBar = new ToolBar(div.getHTMLElement(), this.contextMenuService, {
 				actionItemProvider: (action: Action) => this.actionItemProvider(action),
-				orientation: ActionsOrientation.HORIZONTAL
+				orientation: ActionsOrientation.HORIZONTAL,
+				getKeyBinding: (action) => {
+					const opts = this.keybindingService.lookupKeybindings(action.id);
+					if (opts.length > 0) {
+						return opts[0]; // only take the first one
+					}
+
+					return null;
+				},
+				getKeyBindingLabel: (key) => this.keybindingService.getLabelFor(key)
 			});
 		});
 
@@ -512,13 +510,7 @@ export abstract class CompositePart<T extends Composite> extends Part {
 
 		this.instantiatedComposits = [];
 
-		while (this.activeCompositeListeners.length) {
-			this.activeCompositeListeners.pop()();
-		}
-
-		while (this.instantiatedCompositeListeners.length) {
-			this.instantiatedCompositeListeners.pop()();
-		}
+		this.instantiatedCompositeListeners = dispose(this.instantiatedCompositeListeners);
 
 		this.progressBar.dispose();
 		this.toolBar.dispose();

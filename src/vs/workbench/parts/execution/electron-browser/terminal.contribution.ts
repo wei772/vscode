@@ -5,38 +5,46 @@
 'use strict';
 
 import nls = require('vs/nls');
-import {TPromise} from 'vs/base/common/winjs.base';
-import {Registry} from 'vs/platform/platform';
+import { TPromise } from 'vs/base/common/winjs.base';
+import { Registry } from 'vs/platform/platform';
 import baseplatform = require('vs/base/common/platform');
-import {IAction, Action} from 'vs/base/common/actions';
-import {IWorkbenchActionRegistry, Extensions as ActionExtensions} from 'vs/workbench/common/actionRegistry';
+import { IAction, Action } from 'vs/base/common/actions';
+import { IWorkbenchActionRegistry, Extensions as ActionExtensions } from 'vs/workbench/common/actionRegistry';
 import paths = require('vs/base/common/paths');
-import {Scope, IActionBarRegistry, Extensions as ActionBarExtensions, ActionBarContributor} from 'vs/workbench/browser/actionBarRegistry';
+import { Scope, IActionBarRegistry, Extensions as ActionBarExtensions, ActionBarContributor } from 'vs/workbench/browser/actionBarRegistry';
 import uri from 'vs/base/common/uri';
-import {asFileResource} from 'vs/workbench/parts/files/common/files';
-import {IWorkspaceContextService} from 'vs/workbench/services/workspace/common/contextService';
-import {ITerminalService} from 'vs/workbench/parts/execution/common/execution';
-import {SyncActionDescriptor} from 'vs/platform/actions/common/actions';
-import {IInstantiationService} from 'vs/platform/instantiation/common/instantiation';
-import {KeyMod, KeyCode} from 'vs/base/common/keyCodes';
-import {Extensions, IConfigurationRegistry} from 'vs/platform/configuration/common/configurationRegistry';
-import {DEFAULT_TERMINAL_WINDOWS, DEFAULT_TERMINAL_LINUX} from 'vs/workbench/parts/execution/electron-browser/terminal';
+import { asFileResource } from 'vs/workbench/parts/files/common/files';
+import { IWorkspaceContextService } from 'vs/platform/workspace/common/workspace';
+import { ITerminalService } from 'vs/workbench/parts/execution/common/execution';
+import { SyncActionDescriptor } from 'vs/platform/actions/common/actions';
+import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
+import { IWorkbenchEditorService } from 'vs/workbench/services/editor/common/editorService';
+import { asFileEditorInput } from 'vs/workbench/common/editor';
+import { KeyMod, KeyCode } from 'vs/base/common/keyCodes';
+import { Extensions, IConfigurationRegistry } from 'vs/platform/configuration/common/configurationRegistry';
+import { KEYBINDING_CONTEXT_TERMINAL_NOT_FOCUSED } from 'vs/workbench/parts/terminal/electron-browser/terminal';
+import { DEFAULT_TERMINAL_WINDOWS, DEFAULT_TERMINAL_LINUX, DEFAULT_TERMINAL_OSX } from 'vs/workbench/parts/execution/electron-browser/terminal';
 
 let configurationRegistry = <IConfigurationRegistry>Registry.as(Extensions.Configuration);
 configurationRegistry.registerConfiguration({
 	'id': 'externalTerminal',
 	'order': 100,
-	'title': nls.localize('terminalConfigurationTitle', "External terminal configuration"),
+	'title': nls.localize('terminalConfigurationTitle', "External Terminal"),
 	'type': 'object',
 	'properties': {
-		'externalTerminal.windowsExec': {
+		'terminal.external.windowsExec': {
 			'type': 'string',
 			'description': nls.localize('terminal.external.windowsExec', "Customizes which terminal to run on Windows."),
 			'default': DEFAULT_TERMINAL_WINDOWS
 		},
-		'externalTerminal.linuxExec': {
+		'terminal.external.osxExec': {
 			'type': 'string',
-			'description': nls.localize('terminal.external.linuxExec', "Customizes which terminal to on Linux."),
+			'description': nls.localize('terminal.external.osxExec', "Customizes which terminal application to run on OS X."),
+			'default': DEFAULT_TERMINAL_OSX
+		},
+		'terminal.external.linuxExec': {
+			'type': 'string',
+			'description': nls.localize('terminal.external.linuxExec', "Customizes which terminal to run on Linux."),
 			'default': DEFAULT_TERMINAL_LINUX
 		}
 	}
@@ -56,6 +64,7 @@ export class OpenConsoleAction extends Action {
 		id: string,
 		label: string,
 		@ITerminalService private terminalService: ITerminalService,
+		@IWorkbenchEditorService private editorService: IWorkbenchEditorService,
 		@IWorkspaceContextService private contextService: IWorkspaceContextService
 	) {
 		super(id, label);
@@ -69,14 +78,22 @@ export class OpenConsoleAction extends Action {
 	}
 
 	public run(event?: any): TPromise<any> {
-		let workspace = this.contextService.getWorkspace();
-		let path = this.resource ? this.resource.fsPath : (workspace && workspace.resource.fsPath);
+		let pathToOpen: string;
 
-		if (!path) {
-			return TPromise.as(null);
+		// Try workspace path first
+		let workspace = this.contextService.getWorkspace();
+		pathToOpen = this.resource ? this.resource.fsPath : (workspace && workspace.resource.fsPath);
+
+		// Otherwise check if we have an active file open
+		if (!pathToOpen) {
+			const file = asFileEditorInput(this.editorService.getActiveEditorInput(), true);
+			if (file) {
+				pathToOpen = paths.dirname(file.getResource().fsPath); // take parent folder of file
+			}
 		}
 
-		this.terminalService.openTerminal(path);
+		this.terminalService.openTerminal(pathToOpen);
+
 		return TPromise.as(null);
 	}
 }
@@ -88,13 +105,15 @@ class FileViewerActionContributor extends ActionBarContributor {
 	}
 
 	public hasSecondaryActions(context: any): boolean {
-		return !!asFileResource(context.element);
+		const element = context.element;
+		return !!asFileResource(element) || (element && element.getResource && element.getResource());
 	}
 
 	public getSecondaryActions(context: any): IAction[] {
 		let fileResource = asFileResource(context.element);
-		let resource = fileResource.resource;
-		if (!fileResource.isDirectory) {
+		let resource = fileResource ? fileResource.resource : context.element.getResource();
+		// If there is no file resource, it is an open editor and not a directory.
+		if (!fileResource || !fileResource.isDirectory) {
 			resource = uri.file(paths.dirname(resource.fsPath));
 		}
 
@@ -114,7 +133,8 @@ actionBarRegistry.registerActionBarContributor(Scope.VIEWER, FileViewerActionCon
 		OpenConsoleAction,
 		OpenConsoleAction.ID,
 		OpenConsoleAction.Label,
-		{ primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_C }
+		{ primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_C },
+		KEYBINDING_CONTEXT_TERMINAL_NOT_FOCUSED
 	),
 	'Open New Command Prompt'
 );
